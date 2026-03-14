@@ -35,7 +35,7 @@ client = bigquery.Client(
 # -----------------------------
 
 
-SPREADSHEET_ID = "1vR9ImdIoP2hqQ0kaYZR88il5IhzBL4tA9_i_dawmf_e2Y_oeWR2rv4MVJyZMHpRpSdM4zGncZkjmVSW"
+SPREADSHEET_ID = "1fFdwIWzS_JOcDLQ8ZP0BlNUm__OTW2vT99JB9hDukJA"
 RANGE_NAME = "LookerRevenueSheet!A:Z"
 
 service = build("sheets", "v4", credentials=credentials)
