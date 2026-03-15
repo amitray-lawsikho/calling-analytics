@@ -1,3 +1,4 @@
+name: LSQ Leads Pipeline
 on:
   schedule:
     - cron: '0 */2 * * *'
