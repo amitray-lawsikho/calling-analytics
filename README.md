@@ -320,9 +320,9 @@ Google Looker Studio
 
 # Maintainer
 
-**Amit Ray**
-Sr. Data Analyst
-Sales Intelligence & Data Automation
+**Amit Ray**  
+Sr. Data Analyst  
+Sales Intelligence & Data Automation  
 
 ---
 
