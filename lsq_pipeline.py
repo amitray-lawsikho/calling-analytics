@@ -48,8 +48,6 @@ date_60_days = (now - timedelta(days=59)).strftime("%Y-%m-%d %H:%M:%S")
 # FETCH USERS
 # --------------------------------
 
-print("Fetching LSQ Users...")
-
 user_url = "https://api-in21.leadsquared.com/v2/UserManagement.svc/Users.Get"
 
 params = {
@@ -75,12 +73,9 @@ if isinstance(users, list):
 
 else:
 
-    print("Unexpected response from LSQ Users API:")
-    print(users)
 
     raise Exception("Users API response not valid")
 
-print("Users Loaded:", len(owner_map))
 
 # --------------------------------
 # FETCH LEADS
@@ -107,7 +102,6 @@ all_data = []
 retry_count = 0
 MAX_RETRIES = 10
 
-print("Fetching Leads...")
 
 while True:
 
@@ -135,13 +129,9 @@ while True:
         retry_count += 1
 
         if retry_count > MAX_RETRIES:
-            print("Too many retries")
             break
 
         wait_time = retry_count * 5
-
-        print("Retrying...")
-
         time.sleep(wait_time)
 
         continue
@@ -149,13 +139,9 @@ while True:
     retry_count = 0
 
     if not data:
-        print("All pages fetched")
         break
 
     all_data.extend(data)
-
-    print("Page", page, "Rows:", len(data))
-
     page += 1
 
     time.sleep(1)
@@ -200,7 +186,7 @@ df.drop_duplicates(subset=["ProspectID"], inplace=True)
 # ADD DATE FIELD
 # --------------------------------
 
-df["Modified_Date"] = df["ModifiedOn"].dt.date
+df["Modified Date"] = df["ModifiedOn"].dt.date
 
 # --------------------------------
 # UPDATED TIMESTAMP
@@ -210,7 +196,6 @@ df["updated_at"] = pd.Timestamp.utcnow()
 
 df["updated_at_ampm"] = now.strftime("%d/%m/%Y %I:%M %p")
 
-print("Total Rows:", len(df))
 
 # --------------------------------
 # LOAD TO BIGQUERY
@@ -242,20 +227,14 @@ job_config = bigquery.LoadJobConfig(
         bigquery.SchemaField("mx_Last_Call_new","STRING"),
         bigquery.SchemaField("mx_Report_Type","STRING"),
         bigquery.SchemaField("ModifiedByName","STRING"),
-        bigquery.SchemaField("Modified_Date","DATE"),
+        bigquery.SchemaField("Modified Date","DATE"),
         bigquery.SchemaField("updated_at","TIMESTAMP"),
         bigquery.SchemaField("updated_at_ampm","STRING"),
     ],
 
-    time_partitioning=bigquery.TimePartitioning(
-        field="Modified_Date"
-    ),
-
-    clustering_fields=["OwnerId","ProspectStage"]
 
 )
 
-print("Uploading to BigQuery...")
 
 job = client.load_table_from_dataframe(
     df,
@@ -265,5 +244,3 @@ job = client.load_table_from_dataframe(
 
 job.result()
 
-print("Rows inserted:", len(df))
-print("Pipeline finished successfully")
