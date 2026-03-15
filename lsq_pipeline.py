@@ -63,13 +63,22 @@ users = response.json()
 
 owner_map = {}
 
-for user in users:
+if isinstance(users, list):
 
-    owner_id = user.get("ID")
+    for user in users:
 
-    owner = f"{user.get('FirstName','')} {user.get('LastName','')}".strip()
+        owner_id = user.get("ID")
 
-    owner_map[owner_id] = owner
+        owner = f"{user.get('FirstName','')} {user.get('LastName','')}".strip()
+
+        owner_map[owner_id] = owner
+
+else:
+
+    print("Unexpected response from LSQ Users API:")
+    print(users)
+
+    raise Exception("Users API response not valid")
 
 print("Users Loaded:", len(owner_map))
 
