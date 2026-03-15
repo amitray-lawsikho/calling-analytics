@@ -8,10 +8,7 @@ import pytz
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
-# --------------------------------
-# CONFIG
-# --------------------------------
-
+# LSQ CONFIG
 ACCESS_KEY = os.environ["LSQ_ACCESS_KEY"]
 SECRET_KEY = os.environ["LSQ_SECRET_KEY"]
 
@@ -21,10 +18,7 @@ TABLE = "lsq_leads"
 
 table_id = f"{PROJECT_ID}.{DATASET}.{TABLE}"
 
-# --------------------------------
 # AUTHENTICATION
-# --------------------------------
-
 credentials = service_account.Credentials.from_service_account_info(
     json.loads(os.environ["BQ_CREDENTIALS"])
 )
@@ -34,57 +28,33 @@ client = bigquery.Client(
     project=PROJECT_ID
 )
 
-# --------------------------------
 # TIME WINDOW (LAST 59 DAYS)
-# --------------------------------
-
 india_tz = pytz.timezone("Asia/Kolkata")
-
 now = datetime.now(india_tz)
-
 date_60_days = (now - timedelta(days=59)).strftime("%Y-%m-%d %H:%M:%S")
 
-# --------------------------------
 # FETCH USERS
-# --------------------------------
-
 user_url = "https://api-in21.leadsquared.com/v2/UserManagement.svc/Users.Get"
 
 params = {
     "accessKey": ACCESS_KEY,
     "secretKey": SECRET_KEY
 }
-
 response = requests.get(user_url, params=params)
-
 users = response.json()
-
 owner_map = {}
 
 if isinstance(users, list):
-
     for user in users:
-
         owner_id = user.get("ID")
-
         owner = f"{user.get('FirstName','')} {user.get('LastName','')}".strip()
-
         owner_map[owner_id] = owner
-
 else:
-
-
     raise Exception("Users API response not valid")
 
-
-# --------------------------------
 # FETCH LEADS
-# --------------------------------
-
 URL = f"https://api-in21.leadsquared.com/v2/LeadManagement.svc/Leads.Get?accessKey={ACCESS_KEY}&secretKey={SECRET_KEY}"
-
 HEADERS = {"Content-Type": "application/json"}
-
 FIELDS = (
 "ProspectID,FirstName,LastName,Phone,EmailAddress,"
 "mx_Funnel_name,mx_Bootcamp_Date,mx_Bootcamp_collections,mx_Bootcamp_Attendance,"
@@ -145,31 +115,18 @@ while True:
     page += 1
 
     time.sleep(1)
-
-# --------------------------------
 # DATAFRAME
-# --------------------------------
-
 df = pd.DataFrame(all_data)
-
 all_fields = FIELDS.split(",")
-
 for col in all_fields:
     if col not in df.columns:
         df[col] = None
 
 df = df[all_fields]
-
-# --------------------------------
 # OWNER NAME MAPPING
-# --------------------------------
-
 df["OwnerId"] = df["OwnerId"].map(owner_map).fillna(df["OwnerId"])
 
-# --------------------------------
 # CLEAN DATA
-# --------------------------------
-
 df["ModifiedOn"] = pd.to_datetime(df["ModifiedOn"], errors="coerce")
 
 df["Phone"] = (
@@ -182,25 +139,14 @@ df["Phone"] = (
 
 df.drop_duplicates(subset=["ProspectID"], inplace=True)
 
-# --------------------------------
 # ADD DATE FIELD
-# --------------------------------
-
 df["Modified Date"] = df["ModifiedOn"].dt.date
 
-# --------------------------------
 # UPDATED TIMESTAMP
-# --------------------------------
-
 df["updated_at"] = pd.Timestamp.utcnow()
-
 df["updated_at_ampm"] = now.strftime("%d/%m/%Y %I:%M %p")
 
-
-# --------------------------------
 # LOAD TO BIGQUERY
-# --------------------------------
-
 job_config = bigquery.LoadJobConfig(
 
     write_disposition="WRITE_TRUNCATE",
