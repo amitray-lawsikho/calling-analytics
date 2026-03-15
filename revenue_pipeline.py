@@ -7,20 +7,14 @@ from google.cloud import bigquery
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-# -----------------------------
 # BIGQUERY CONFIG
-# -----------------------------
-
 PROJECT_ID = "studious-apex-488820-c3"
 DATASET = "crm_dashboard"
 TABLE = "revenue_sheet"
 
 table_id = f"{PROJECT_ID}.{DATASET}.{TABLE}"
 
-# -----------------------------
 # AUTHENTICATION (FROM GITHUB SECRET)
-# -----------------------------
-
 credentials = service_account.Credentials.from_service_account_info(
     json.loads(os.environ["BQ_CREDENTIALS"])
 )
@@ -30,11 +24,7 @@ client = bigquery.Client(
     project=PROJECT_ID
 )
 
-# -----------------------------
 # FETCH GOOGLE SHEET
-# -----------------------------
-
-
 SPREADSHEET_ID = "1fFdwIWzS_JOcDLQ8ZP0BlNUm__OTW2vT99JB9hDukJA"
 RANGE_NAME = "LookerRevenueSheet!A:Z"
 
@@ -55,11 +45,7 @@ df.columns = df.iloc[0]
 
 df = df[1:]
 
-
-# -----------------------------
 # NORMALIZE COLUMN NAMES
-# -----------------------------
-
 df.columns = (
     df.columns
     .str.strip()
@@ -67,10 +53,7 @@ df.columns = (
     .str.replace(" ", "_")
 )
 
-# -----------------------------
 # SELECT REQUIRED COLUMNS
-# -----------------------------
-
 df = df[
 [
 "date",
@@ -87,10 +70,7 @@ df = df[
 ]
 ]
 
-# -----------------------------
 # RENAME COLUMNS
-# -----------------------------
-
 df.columns = [
 "Date",
 "Name",
@@ -105,16 +85,10 @@ df.columns = [
 "LawSikho_Skill_Arbitrage"
 ]
 
-# -----------------------------
 # CLEAN DATE
-# -----------------------------
-
 df["Date"] = pd.to_datetime(df["Date"], errors="coerce", dayfirst=True)
 
-# -----------------------------
 # CLEAN PHONE
-# -----------------------------
-
 df["Contact_No"] = (
 df["Contact_No"]
 .astype(str)
@@ -123,10 +97,7 @@ df["Contact_No"]
 .str[-10:]
 )
 
-# -----------------------------
 # CLEAN FEE PAID
-# -----------------------------
-
 df["Fee_paid"] = (
 df["Fee_paid"]
 .astype(str)
@@ -141,10 +112,7 @@ df = df[df["Fee_paid"].notna()]
 
 after_rows = len(df)
 
-# -----------------------------
 # CLEAN COURSE PRICE
-# -----------------------------
-
 df["Course_Price"] = (
 df["Course_Price"]
 .astype(str)
@@ -153,10 +121,7 @@ df["Course_Price"]
 
 df["Course_Price"] = pd.to_numeric(df["Course_Price"], errors="coerce")
 
-# -----------------------------
 # CLEAN LAWSIKHO / SKILL ARBITRAGE
-# -----------------------------
-
 df["LawSikho_Skill_Arbitrage"] = (
 df["LawSikho_Skill_Arbitrage"]
 .astype(str)
@@ -165,10 +130,7 @@ df["LawSikho_Skill_Arbitrage"]
 
 df["LawSikho_Skill_Arbitrage"] = df["LawSikho_Skill_Arbitrage"].replace("", "Not Identified")
 
-# -----------------------------
 # FILTER LAST 59 DAYS
-# -----------------------------
-
 india_tz = pytz.timezone("Asia/Kolkata")
 
 today = datetime.now(india_tz).date()
@@ -180,16 +142,10 @@ df = df[
 (df["Date"].dt.date <= today)
 ]
 
-# -----------------------------
 # CREATE REV_MONTH
-# -----------------------------
-
 df["Rev_Month"] = df["Date"].values.astype("datetime64[M]")
 
-# -----------------------------
 # UPDATED_AT
-# -----------------------------
-
 now = datetime.now(india_tz)
 
 df["updated_at"] = pd.Timestamp(now)
@@ -198,10 +154,7 @@ df["updated_at_ampm"] = now.strftime("%d/%m/%Y %I:%M %p")
 
 df = df[df["Date"].notna()]
 
-# -----------------------------
 # LOAD TO BIGQUERY
-# -----------------------------
-
 job_config = bigquery.LoadJobConfig(
 
 write_disposition="WRITE_TRUNCATE",
