@@ -231,7 +231,7 @@ Pipelines are executed automatically using **GitHub Actions**.
 | -------- | ------------- |
 | Acefone  | Every 1 hour  |
 | LSQ      | Every 2 hours |
-| Revenue  | Every 4 hours |
+| Revenue  | Every 1 hours |
 
 Workflows are defined under:
 
