@@ -326,5 +326,14 @@ Sales Intelligence & Data Automation
 
 ---
 
+To manually run a pipeline:  
+
+1. Open the repository  
+2. Click "Actions"  
+3. Select the required pipeline  
+4. Click "Run workflow"  
+
+---
+
 # License
 Internal analytics pipeline for organizational reporting.
