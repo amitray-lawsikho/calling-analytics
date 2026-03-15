@@ -55,9 +55,6 @@ df.columns = df.iloc[0]
 
 df = df[1:]
 
-print("Rows fetched:", len(df))
-
-print("Total rows fetched:", len(df))
 
 # -----------------------------
 # NORMALIZE COLUMN NAMES
@@ -69,8 +66,6 @@ df.columns = (
     .str.lower()
     .str.replace(" ", "_")
 )
-
-print("Detected Columns:", df.columns.tolist())
 
 # -----------------------------
 # SELECT REQUIRED COLUMNS
@@ -146,8 +141,6 @@ df = df[df["Fee_paid"].notna()]
 
 after_rows = len(df)
 
-print("Rows skipped due to text Fee Paid:", before_rows - after_rows)
-
 # -----------------------------
 # CLEAN COURSE PRICE
 # -----------------------------
@@ -186,8 +179,6 @@ df = df[
 (df["Date"].dt.date >= cutoff_date) &
 (df["Date"].dt.date <= today)
 ]
-
-print("Rows after 59 day filter:", len(df))
 
 # -----------------------------
 # CREATE REV_MONTH
@@ -233,8 +224,6 @@ bigquery.SchemaField("updated_at_ampm","STRING"),
 ]
 )
 
-print("Uploading to BigQuery...")
-
 job = client.load_table_from_dataframe(
 df,
 table_id,
@@ -243,5 +232,3 @@ job_config=job_config
 
 job.result()
 
-print("Rows inserted:", len(df))
-print("Pipeline finished successfully")
