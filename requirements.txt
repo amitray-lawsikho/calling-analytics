@@ -6,3 +6,4 @@ google-auth
 pyarrow
 requests
 db-dtypes
+pandas-gbq
