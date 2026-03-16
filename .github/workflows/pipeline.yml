@@ -2,7 +2,7 @@ name: Revenue BigQuery Pipeline
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -27,7 +27,18 @@ jobs:
     - name: Install Dependencies
       run: pip install -r requirements.txt
 
+    - name: Check correct minute
+      id: check_time
+      run: |
+        minute=$(date +'%M')
+        if [[ "$minute" == "00" || "$minute" == "15" || "$minute" == "30" || "$minute" == "45" ]]; then
+          echo "run_pipeline=true" >> $GITHUB_OUTPUT
+        else
+          echo "run_pipeline=false" >> $GITHUB_OUTPUT
+        fi
+
     - name: Run Revenue Pipeline
+      if: steps.check_time.outputs.run_pipeline == 'true'
       env:
         BQ_CREDENTIALS: ${{ secrets.BQ_CREDENTIALS }}
       run: |
