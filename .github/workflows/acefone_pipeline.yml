@@ -2,7 +2,7 @@ name: Acefone Pipeline
 
 on:
   schedule:
-    - cron: '19 * * * *'
+    - cron: '30 * * * *'
   workflow_dispatch:
 
 jobs:
