@@ -2,7 +2,7 @@ name: LSQ Leads Pipeline
 
 on:
   schedule:
-    - cron: '23 */2 * * *'
+    - cron: '0 */2 * * *'
   workflow_dispatch:
 
 jobs:
