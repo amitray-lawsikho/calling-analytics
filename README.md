@@ -216,7 +216,6 @@ Key tables:
 | ------------- | --------------------------- |
 | acefone_calls | Call activity data          |
 | lsq_leads     | Lead lifecycle data         |
-| lsq_users     | Lead owner mapping          |
 | revenue_sheet | Enrollment and revenue data |
 
 ---
