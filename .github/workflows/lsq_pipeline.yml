@@ -1,7 +1,8 @@
 name: LSQ Leads Pipeline
+
 on:
   schedule:
-    - cron: '0 */2 * * *'
+    - cron: '23 */2 * * *'
   workflow_dispatch:
 
 jobs:
@@ -9,19 +10,22 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    concurrency:
+      group: lsq-pipeline
+      cancel-in-progress: false
+
     steps:
 
     - name: Checkout Repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Setup Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.11"
 
     - name: Install Dependencies
-      run: |
-        pip install -r requirements.txt
+      run: pip install -r requirements.txt
 
     - name: Run LSQ Pipeline
       env:
@@ -29,4 +33,4 @@ jobs:
         LSQ_ACCESS_KEY: ${{ secrets.LSQ_ACCESS_KEY }}
         LSQ_SECRET_KEY: ${{ secrets.LSQ_SECRET_KEY }}
       run: |
-        python lsq_pipeline.py
+        python lsq_pipeline.py || (sleep 30 && python lsq_pipeline.py)
