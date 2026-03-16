@@ -2,7 +2,7 @@ name: Acefone Pipeline
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -32,7 +32,18 @@ jobs:
       with:
         credentials_json: '${{ secrets.BQ_CREDENTIALS }}'
 
+    - name: Check correct minute
+      id: check_time
+      run: |
+        minute=$(date +'%M')
+        if [[ "$minute" == "00" || "$minute" == "15" || "$minute" == "30" || "$minute" == "45" ]]; then
+          echo "run_pipeline=true" >> $GITHUB_OUTPUT
+        else
+          echo "run_pipeline=false" >> $GITHUB_OUTPUT
+        fi
+
     - name: Run Acefone Pipeline
+      if: steps.check_time.outputs.run_pipeline == 'true'
       run: |
         python acefone_pipeline.py || (sleep 30 && python acefone_pipeline.py)
       env:
