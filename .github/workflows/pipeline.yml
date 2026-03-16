@@ -2,7 +2,7 @@ name: Revenue BigQuery Pipeline
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  
+    - cron: '13,43 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -10,22 +10,25 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    concurrency:
+      group: revenue-pipeline
+      cancel-in-progress: false
+
     steps:
 
     - name: Checkout Repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Setup Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.11"
 
     - name: Install Dependencies
-      run: |
-        pip install -r requirements.txt
+      run: pip install -r requirements.txt
 
     - name: Run Revenue Pipeline
       env:
         BQ_CREDENTIALS: ${{ secrets.BQ_CREDENTIALS }}
       run: |
-        python revenue_pipeline.py
+        python revenue_pipeline.py || (sleep 30 && python revenue_pipeline.py)
