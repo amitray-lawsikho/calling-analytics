@@ -2,14 +2,17 @@ name: Acefone Pipeline
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '17 * * * *'
   workflow_dispatch:
 
 jobs:
-
   run-pipeline:
 
     runs-on: ubuntu-latest
+
+    concurrency:
+      group: acefone-pipeline
+      cancel-in-progress: false
 
     steps:
 
@@ -19,7 +22,7 @@ jobs:
     - name: Setup Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        python-version: "3.11"
 
     - name: Install dependencies
       run: pip install -r requirements.txt
@@ -29,8 +32,9 @@ jobs:
       with:
         credentials_json: '${{ secrets.BQ_CREDENTIALS }}'
 
-    - name: Run pipeline
-      run: python acefone_pipeline.py
+    - name: Run Acefone Pipeline
+      run: |
+        python acefone_pipeline.py || (sleep 30 && python acefone_pipeline.py)
       env:
         ACEFONE_API_KEY: ${{ secrets.ACEFONE_API_KEY }}
         ACEFONE_ACCOUNT_ID: ${{ secrets.ACEFONE_ACCOUNT_ID }}
