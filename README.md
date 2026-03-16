@@ -336,4 +336,4 @@ To manually run a pipeline:
 
 # License
 Internal analytics pipeline for organizational reporting.
-scheduler restart
+
