@@ -31,6 +31,12 @@ jobs:
     - name: Install dependencies
       run: pip install -r requirements.txt
 
+    # ⭐ ADD THIS STEP
+    - name: Authenticate GCP
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: '${{ secrets.BQ_CREDENTIALS }}'
+
     - name: Run Acefone Pipeline
       run: python acefone_pipeline.py
       env:
