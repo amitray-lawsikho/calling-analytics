@@ -4,8 +4,8 @@ import os
 from datetime import datetime, timedelta
 from google.cloud import bigquery
 from googleapiclient.discovery import build
-from google.cloud import bigquery
 client = bigquery.Client()
+from google.auth import default
 # BIGQUERY CONFIG
 PROJECT_ID = "studious-apex-488820-c3"
 DATASET = "crm_dashboard"
@@ -17,7 +17,7 @@ table_id = f"{PROJECT_ID}.{DATASET}.{TABLE}"
 # FETCH GOOGLE SHEET
 SPREADSHEET_ID = "1fFdwIWzS_JOcDLQ8ZP0BlNUm__OTW2vT99JB9hDukJA"
 RANGE_NAME = "LookerRevenueSheet!A:Z"
-
+credentials, _ = default()
 service = build("sheets", "v4", credentials=credentials)
 
 sheet = service.spreadsheets()
