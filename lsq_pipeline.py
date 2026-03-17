@@ -6,8 +6,7 @@ import json
 from datetime import datetime, timedelta
 import pytz
 from google.cloud import bigquery
-from google.oauth2 import service_account
-
+client = bigquery.Client()
 # LSQ CONFIG
 ACCESS_KEY = os.environ["LSQ_ACCESS_KEY"]
 SECRET_KEY = os.environ["LSQ_SECRET_KEY"]
@@ -18,9 +17,7 @@ TABLE = "lsq_leads"
 
 table_id = f"{PROJECT_ID}.{DATASET}.{TABLE}"
 
-# AUTHENTICATION
-credentials = service_account.Credentials.from_service_account_info(
-    json.loads(os.environ["BQ_CREDENTIALS"])
+
 )
 
 client = bigquery.Client(
