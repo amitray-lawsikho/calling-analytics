@@ -1,12 +1,11 @@
 import pandas as pd
 import pytz
 import os
-import json
 from datetime import datetime, timedelta
 from google.cloud import bigquery
-from google.oauth2 import service_account
 from googleapiclient.discovery import build
-
+from google.cloud import bigquery
+client = bigquery.Client()
 # BIGQUERY CONFIG
 PROJECT_ID = "studious-apex-488820-c3"
 DATASET = "crm_dashboard"
@@ -14,15 +13,6 @@ TABLE = "revenue_sheet"
 
 table_id = f"{PROJECT_ID}.{DATASET}.{TABLE}"
 
-# AUTHENTICATION (FROM GITHUB SECRET)
-credentials = service_account.Credentials.from_service_account_info(
-    json.loads(os.environ["BQ_CREDENTIALS"])
-)
-
-client = bigquery.Client(
-    credentials=credentials,
-    project=PROJECT_ID
-)
 
 # FETCH GOOGLE SHEET
 SPREADSHEET_ID = "1fFdwIWzS_JOcDLQ8ZP0BlNUm__OTW2vT99JB9hDukJA"
