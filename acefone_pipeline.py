@@ -269,7 +269,8 @@ def load_to_bigquery(rows):
         return
 
     df = pd.DataFrame(rows)
-
+    df["call_id"] = df["call_id"].astype(str)
+    df["client_number"] = df["client_number"].astype(str)
     df["call_datetime"] = pd.to_datetime(df["call_datetime"], utc=True, errors="coerce")
     df["call_duration"] = pd.to_numeric(df["call_duration"], errors="coerce").fillna(0).astype(int)
 
