@@ -14,16 +14,18 @@ TABLE = "acefone_calls"
 
 TABLE_ID = f"{PROJECT_ID}.{DATASET}.{TABLE}"
 
-API_KEY = os.getenv("ACEFONE_API_KEY")
+# ACEFONE
+ACE_API_KEY = os.getenv("ACEFONE_API_KEY")
 ACCOUNT_ID = os.getenv("ACEFONE_ACCOUNT_ID")
+ACE_URL = "https://api.acefone.in/v1/call/records"
 
-BASE_URL = "https://api.acefone.in/v1/call/records"
+# OZONETEL
+OZO_API_KEY = os.getenv("OZONETEL_API_KEY")
+OZO_USERNAME = os.getenv("OZONETEL_USERNAME")
+OZO_URL = "https://in1-ccaas-api.ozonetel.com/ca_reports/fetchCDRDetails"
 
 LIMIT = 1000
-
 india = pytz.timezone("Asia/Kolkata")
-
-# ---------------- BIGQUERY CLIENT ----------------
 
 client = bigquery.Client()
 
@@ -37,31 +39,25 @@ def get_last_call_time():
     """
 
     df = client.query(query).to_dataframe()
-
     last_time = df.iloc[0]["last_time"]
 
     if pd.isna(last_time):
-        last_time = datetime.utcnow() - timedelta(hours=2)
+        last_time = datetime.utcnow() - timedelta(hours=6)
 
     return last_time
 
 
-# ---------------- FETCH CALLS ----------------
+# ---------------- ACEFONE ----------------
 
-def fetch_calls():
+def fetch_acefone(last_time):
 
-    last_time = get_last_call_time()
-
-    # 60 minute overlap for safety
     fetch_start = last_time - timedelta(minutes=90)
 
     from_date = fetch_start.strftime("%Y-%m-%d %H:%M:%S")
     to_date = datetime.now(india).strftime("%Y-%m-%d %H:%M:%S")
 
-    print("Fetching calls from:", from_date)
-
     headers = {
-        "Authorization": f"Bearer {API_KEY}",
+        "Authorization": f"Bearer {ACE_API_KEY}",
         "accountid": ACCOUNT_ID,
         "accept": "application/json"
     }
@@ -78,14 +74,12 @@ def fetch_calls():
             "limit": LIMIT
         }
 
-        response = requests.get(BASE_URL, headers=headers, params=params)
+        response = requests.get(ACE_URL, headers=headers, params=params)
 
         if response.status_code != 200:
-            print("API ERROR:", response.text)
             break
 
-        data = response.json()
-        results = data.get("results", [])
+        results = response.json().get("results", [])
 
         if not results:
             break
@@ -93,16 +87,10 @@ def fetch_calls():
         for call in results:
 
             call_id = call.get("call_id")
-            client_number = call.get("client_number")
-
-            if not call_id or not client_number:
+            if not call_id:
                 continue
 
-            client_number = str(client_number).replace("+91", "")[-10:]
-
-            duration = call.get("call_duration", 0)
-            direction = call.get("direction")
-            status = call.get("status")
+            client_number = str(call.get("client_number", "")).replace("+91", "")[-10:]
 
             agent = call.get("agent_name")
 
@@ -115,34 +103,95 @@ def fetch_calls():
                         agent = flow.get("name")
                         break
 
-            call_type = None
-
-            if call.get("dialer_call_details"):
-                call_type = call["dialer_call_details"].get("call_type")
-
-            updated = datetime.utcnow()
-            updated_ampm = updated.astimezone(india).strftime("%d/%m/%Y %I:%M %p")
-
-            row = {
-
+            rows.append({
                 "client_number": client_number,
                 "call_datetime": call.get("end_stamp"),
                 "call_owner": agent,
-                "call_duration": duration,
-                "status": "Answered" if status == "answered" else "Missed",
+                "call_duration": call.get("call_duration", 0),
+                "status": "Answered" if call.get("status") == "answered" else "Missed",
                 "call_id": call_id,
-                "direction": direction,
+                "direction": call.get("direction"),
                 "service": call.get("service"),
                 "reason": call.get("reason"),
-                "call_type": call_type,
-                "updated_at": updated,
-                "updated_at_ampm": updated_ampm
-            }
-
-            rows.append(row)
+                "call_type": call.get("dialer_call_details", {}).get("call_type"),
+                "updated_at": datetime.utcnow(),
+                "updated_at_ampm": datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
+            })
 
         page += 1
         time.sleep(0.2)
+
+    return rows
+
+
+# ---------------- OZONETEL ----------------
+
+def fetch_ozonetel(last_time):
+
+    fetch_start = last_time - timedelta(minutes=120)
+
+    from_date = fetch_start.strftime("%Y-%m-%d %H:%M:%S")
+    to_date = datetime.now(india).strftime("%Y-%m-%d %H:%M:%S")
+
+    headers = {
+        "Content-Type": "application/json",
+        "apiKey": OZO_API_KEY
+    }
+
+    payload = {
+        "fromDate": from_date,
+        "toDate": to_date,
+        "userName": OZO_USERNAME
+    }
+
+    response = requests.get(OZO_URL, headers=headers, json=payload)
+
+    data = response.json()
+
+    if data.get("status") == "false":
+        print("Ozonetel Error:", data.get("message"))
+        return []
+
+    rows = []
+
+    for call in data.get("details", []):
+
+        try:
+            call_id = call.get("CallID")
+            if not call_id:
+                continue
+
+            # ✅ combine date + time
+            call_dt = pd.to_datetime(
+                f"{call.get('CallDate')} {call.get('StartTime')}",
+                format="%d-%m-%Y %H:%M:%S",
+                errors="coerce"
+            )
+
+            def to_sec(t):
+                try:
+                    h, m, s = map(int, str(t).split(":"))
+                    return h*3600 + m*60 + s
+                except:
+                    return 0
+
+            rows.append({
+                "client_number": str(call.get("E164", ""))[-10:],
+                "call_datetime": call_dt,
+                "call_owner": call.get("AgentName"),
+                "call_duration": to_sec(call.get("Duration")),
+                "status": call.get("Status") or call.get("DialStatus"),
+                "call_id": call_id,
+                "direction": call.get("Type"),
+                "service": call.get("Type"),
+                "reason": call.get("DialStatus"),
+                "call_type": call.get("Type"),
+                "updated_at": datetime.utcnow(),
+                "updated_at_ampm": datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
+            })
+
+        except Exception as e:
+            print("Skip Ozonetel row:", e)
 
     return rows
 
@@ -169,15 +218,12 @@ def remove_existing(df):
     )
 
     existing = client.query(query, job_config=job_config).to_dataframe()
-
     existing_ids = set(existing["call_id"].tolist())
 
-    df = df[~df["call_id"].isin(existing_ids)]
-
-    return df
+    return df[~df["call_id"].isin(existing_ids)]
 
 
-# ---------------- LOAD TO BIGQUERY ----------------
+# ---------------- LOAD ----------------
 
 def load_to_bigquery(rows):
 
@@ -187,11 +233,10 @@ def load_to_bigquery(rows):
 
     df = pd.DataFrame(rows)
 
-    df["call_datetime"] = pd.to_datetime(df["call_datetime"], utc=True)
+    df["call_datetime"] = pd.to_datetime(df["call_datetime"], utc=True, errors="coerce")
     df["call_duration"] = pd.to_numeric(df["call_duration"], errors="coerce").fillna(0).astype(int)
 
     df.drop_duplicates(subset=["call_id"], inplace=True)
-
     df = remove_existing(df)
 
     if df.empty:
@@ -209,15 +254,20 @@ def load_to_bigquery(rows):
     print(len(df), "rows inserted")
 
 
-# ---------------- MAIN PIPELINE ----------------
+# ---------------- MAIN ----------------
 
 def run_pipeline():
 
-    rows = fetch_calls()
+    last_time = get_last_call_time()
 
-    load_to_bigquery(rows)
+    ace_rows = fetch_acefone(last_time)
+    ozo_rows = fetch_ozonetel(last_time)
 
-    print("Pipeline completed")
+    all_rows = ace_rows + ozo_rows
+
+    load_to_bigquery(all_rows)
+
+    print("Unified pipeline completed")
 
 
 if __name__ == "__main__":
