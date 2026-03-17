@@ -2,7 +2,6 @@ import requests
 import pandas as pd
 import time
 import os
-import json
 from datetime import datetime, timedelta
 import pytz
 from google.cloud import bigquery
@@ -17,13 +16,6 @@ TABLE = "lsq_leads"
 
 table_id = f"{PROJECT_ID}.{DATASET}.{TABLE}"
 
-
-)
-
-client = bigquery.Client(
-    credentials=credentials,
-    project=PROJECT_ID
-)
 
 # TIME WINDOW (LAST 59 DAYS)
 india_tz = pytz.timezone("Asia/Kolkata")
