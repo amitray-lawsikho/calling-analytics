@@ -37,7 +37,9 @@ def get_last_call_time_by_source(source):
 
     try:
         query = f"""
-        SELECT MAX(call_datetime) last_time
+        SELECT 
+            MAX(call_datetime) last_time,
+            COUNT(1) total_rows
         FROM `{TABLE_ID}`
         WHERE source = @source
         """
@@ -49,15 +51,19 @@ def get_last_call_time_by_source(source):
         )
 
         df = client.query(query, job_config=job_config).to_dataframe()
-        last_time = df.iloc[0]["last_time"]
 
-        if pd.isna(last_time):
-            return datetime.utcnow() - timedelta(days=2)
+        last_time = df.iloc[0]["last_time"]
+        total_rows = df.iloc[0]["total_rows"]
+
+        # 🔥 NEW SOURCE DETECTION
+        if total_rows == 0 or pd.isna(last_time):
+            print(f"⚠️ {source} is new → backfilling 10 days")
+            return datetime.utcnow() - timedelta(days=10)
 
         return last_time
 
     except:
-        return datetime.utcnow() - timedelta(days=2)
+        return datetime.utcnow() - timedelta(days=10)
 
 
 # ---------------- FETCH TEAM ----------------
