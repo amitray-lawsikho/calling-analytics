@@ -215,89 +215,91 @@ def fetch_acefone(last_time):
 
 def fetch_ozonetel(last_time, team):
 
-    fetch_start = last_time - timedelta(hours=3)
-
-    from_date = fetch_start.strftime("%Y-%m-%d %H:%M:%S")
-    to_date = datetime.now(india).strftime("%Y-%m-%d %H:%M:%S")
-
-    headers = {
-        "Content-Type": "application/json",
-        "apiKey": OZO_API_KEY
-    }
-
-    payload = {
-        "fromDate": from_date,
-        "toDate": to_date,
-        "userName": OZO_USERNAME
-    }
-
-    try:
-        response = requests.get(OZO_URL, headers=headers, json=payload)
-        data = response.json()
-
-    except Exception as e:
-        print("Ozonetel API error:", str(e))
-        return pd.DataFrame()
-
     rows = []
 
-    for call in data.get("details", []):
+    start_date = (last_time - timedelta(days=1)).date()
+    end_date = datetime.now().date()
+
+    current_date = start_date
+
+    while current_date <= end_date:
+
+        from_date = f"{current_date} 00:00:00"
+        to_date   = f"{current_date} 23:59:59"
+
+        print(f"Fetching Ozonetel for: {from_date}")
+
+        headers = {
+            "Content-Type": "application/json",
+            "apiKey": OZO_API_KEY
+        }
+
+        payload = {
+            "fromDate": from_date,
+            "toDate": to_date,
+            "userName": OZO_USERNAME
+        }
 
         try:
-            agent = str(call.get("AgentName","")).strip()
-
-            # ✅ TEAM FILTER ONLY HERE
-            if team and agent not in team:
-                continue
-
-            call_id = call.get("CallID")
-            if not call_id:
-                continue
-
-            call_dt = pd.to_datetime(
-                f"{call.get('CallDate')} {call.get('StartTime')}",
-                format="%d/%m/%Y %H:%M:%S",
-                errors="coerce"
-            )
-
-            if pd.notna(call_dt):
-                call_dt = india.localize(call_dt).astimezone(pytz.UTC)
-
-            rows.append({
-
-                "client_number": str(call.get("E164",""))[-10:],
-
-                "call_datetime": call_dt,
-
-                "call_owner": agent,
-
-                "call_duration": 0,
-
-                "status": call.get("Status"),
-
-                "call_id": call_id,
-
-                "direction": call.get("Type"),
-
-                "service": call.get("Type"),
-
-                "reason": call.get("DialStatus"),
-
-                "call_type": call.get("Type"),
-
-                "source": "Ozonetel",
-
-                "updated_at": datetime.utcnow(),
-
-                "updated_at_ampm": datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
-
-            })
-
+            response = requests.get(OZO_URL, headers=headers, json=payload)
+            data = response.json()
         except Exception as e:
-            print("Ozonetel row error:", str(e))
+            print("Ozonetel API error:", str(e))
+            current_date += timedelta(days=1)
             continue
 
-    print("Ozonetel rows:", len(rows))
+        details = data.get("details", [])
+
+        print("Raw records:", len(details))
+
+        for call in details:
+
+            try:
+
+                agent = str(call.get("AgentName", "")).strip()
+
+                # ✅ CLEAN TEAM MATCH (IMPORTANT FIX)
+                if team:
+                    if agent.strip().lower() not in [x.strip().lower() for x in team]:
+                        continue
+
+                call_id = call.get("CallID")
+                if not call_id:
+                    continue
+
+                call_dt = pd.to_datetime(
+                    f"{call.get('CallDate')} {call.get('StartTime')}",
+                    format="%d/%m/%Y %H:%M:%S",
+                    errors="coerce"
+                )
+
+                if pd.notna(call_dt):
+                    call_dt = india.localize(call_dt).astimezone(pytz.UTC)
+
+                rows.append({
+                    "client_number": str(call.get("E164",""))[-10:],
+                    "call_datetime": call_dt,
+                    "call_owner": agent,
+                    "call_duration": 0,
+                    "status": call.get("Status"),
+                    "call_id": call_id,
+                    "direction": call.get("Type"),
+                    "service": call.get("Type"),
+                    "reason": call.get("DialStatus"),
+                    "call_type": call.get("Type"),
+                    "source": "Ozonetel",
+                    "updated_at": datetime.utcnow(),
+                    "updated_at_ampm": datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
+                })
+
+            except Exception as e:
+                print("Row error:", str(e))
+                continue
+
+        current_date += timedelta(days=1)
+        time.sleep(0.3)
+
+    print("Ozonetel FINAL rows:", len(rows))
 
     return pd.DataFrame(rows)
 
