@@ -33,22 +33,31 @@ client = bigquery.Client()
 
 # ---------------- GET LAST TIME ----------------
 
-def get_last_call_time():
+def get_last_call_time_by_source(source):
+
     try:
         query = f"""
         SELECT MAX(call_datetime) last_time
         FROM `{TABLE_ID}`
+        WHERE source = @source
         """
-        df = client.query(query).to_dataframe()
+
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("source", "STRING", source)
+            ]
+        )
+
+        df = client.query(query, job_config=job_config).to_dataframe()
         last_time = df.iloc[0]["last_time"]
 
         if pd.isna(last_time):
-            return datetime.utcnow() - timedelta(hours=6)
+            return datetime.utcnow() - timedelta(days=2)
 
         return last_time
 
     except:
-        return datetime.utcnow() - timedelta(hours=6)
+        return datetime.utcnow() - timedelta(days=2)
 
 
 # ---------------- FETCH TEAM ----------------
@@ -311,18 +320,12 @@ def load_to_bigquery(rows):
 
 def run_pipeline():
 
-    last_time = get_last_call_time()
+    ace_last_time = get_last_call_time_by_source("Acefone")
+    ozo_last_time = get_last_call_time_by_source("Ozonetel")
     team = get_team_members()
-
-    ace_rows = fetch_acefone(last_time)
-    ozo_rows = fetch_ozonetel(last_time, team)
-
+    ace_rows = fetch_acefone(ace_last_time)
+    ozo_rows = fetch_ozonetel(ozo_last_time, team)
     all_rows = ace_rows + ozo_rows
-
     load_to_bigquery(all_rows)
 
-    print("✅ Pipeline completed safely")
 
-
-if __name__ == "__main__":
-    run_pipeline()
