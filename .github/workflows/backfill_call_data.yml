@@ -34,4 +34,4 @@ jobs:
           OZONETEL_USERNAME: ${{ secrets.OZONETEL_USERNAME }}
           TEAM_SHEET_URL: ${{ secrets.TEAM_SHEET_URL }}
         run: |
-          python your_script_name.py
+          python Update_manually_CDR.py
