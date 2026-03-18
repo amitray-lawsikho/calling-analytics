@@ -14,7 +14,6 @@ TABLE = "acefone_calls"
 
 TABLE_ID = f"{PROJECT_ID}.{DATASET}.{TABLE}"
 
-# API CONFIG
 ACE_API_KEY = os.getenv("ACEFONE_API_KEY")
 ACCOUNT_ID = os.getenv("ACEFONE_ACCOUNT_ID")
 ACE_URL = "https://api.acefone.in/v1/call/records"
@@ -30,7 +29,7 @@ india = pytz.timezone("Asia/Kolkata")
 
 client = bigquery.Client()
 
-# ---------------- LAST TIME PER SOURCE ----------------
+# ---------------- LAST TIME ----------------
 
 def get_last_call_time_by_source(source):
 
@@ -67,14 +66,45 @@ def get_last_call_time_by_source(source):
 # ---------------- TEAM ----------------
 
 def get_team_members():
+
     try:
         df = pd.read_csv(TEAM_SHEET_URL)
-        team = df.iloc[:, 2].dropna().astype(str).str.strip().unique().tolist()
+
+        team = (
+            df.iloc[:, 2]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .unique()
+            .tolist()
+        )
+
         print("Team Loaded:", len(team))
         return team
+
     except Exception as e:
         print("Team load failed:", str(e))
         return []
+
+
+# ---------------- SAFE DURATION ----------------
+
+def safe_duration(x):
+
+    try:
+        if pd.isna(x):
+            return 0
+
+        if isinstance(x, str):
+            if ":" in x:
+                h, m, s = map(int, x.split(":"))
+                return h*3600 + m*60 + s
+            return int(x)
+
+        return int(x)
+
+    except:
+        return 0
 
 
 # ---------------- ACEFONE ----------------
@@ -96,6 +126,7 @@ def fetch_acefone(last_time):
     page = 1
 
     while True:
+
         params = {
             "from_date": from_date,
             "to_date": to_date,
@@ -111,30 +142,59 @@ def fetch_acefone(last_time):
                 break
 
             results = response.json().get("results", [])
+
             if not results:
                 break
 
             for call in results:
+
                 try:
+                    if not call or not isinstance(call, dict):
+                        continue
+
                     call_id = call.get("call_id")
                     if not call_id:
                         continue
 
+                    dialer_details = call.get("dialer_call_details") or {}
+
+                    # ✅ FIXED DATETIME HERE (UTC)
+                    call_dt = pd.to_datetime(
+                        call.get("end_stamp"),
+                        errors="coerce",
+                        utc=True
+                    )
+
                     rows.append({
-                        "client_number": str(call.get("client_number", "")).replace("+91", "")[-10:],
-                        "call_datetime": call.get("end_stamp"),
+
+                        "client_number": str(call.get("client_number", "")).replace("+91","")[-10:],
+
+                        "call_datetime": call_dt,
+
                         "call_owner": call.get("agent_name"),
-                        "call_duration": call.get("call_duration", 0),
+
+                        "call_duration": safe_duration(call.get("call_duration")),
+
                         "status": "Answered" if call.get("status") == "answered" else "Missed",
+
                         "call_id": call_id,
+
                         "direction": call.get("direction"),
+
                         "service": call.get("service"),
+
                         "reason": call.get("reason"),
-                        "call_type": call.get("dialer_call_details", {}).get("call_type"),
+
+                        "call_type": dialer_details.get("call_type"),
+
                         "source": "Acefone",
+
                         "updated_at": datetime.utcnow(),
+
                         "updated_at_ampm": datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
+
                     })
+
                 except Exception as e:
                     print("Acefone row error:", str(e))
                     continue
@@ -147,6 +207,7 @@ def fetch_acefone(last_time):
             break
 
     print("Acefone rows:", len(rows))
+
     return pd.DataFrame(rows)
 
 
@@ -173,20 +234,19 @@ def fetch_ozonetel(last_time, team):
     try:
         response = requests.get(OZO_URL, headers=headers, json=payload)
         data = response.json()
+
     except Exception as e:
         print("Ozonetel API error:", str(e))
-        return pd.DataFrame()
-
-    if data.get("status") == "false":
-        print("Ozonetel API returned error:", data.get("message"))
         return pd.DataFrame()
 
     rows = []
 
     for call in data.get("details", []):
-        try:
-            agent = str(call.get("AgentName", "")).strip()
 
+        try:
+            agent = str(call.get("AgentName","")).strip()
+
+            # ✅ TEAM FILTER ONLY HERE
             if team and agent not in team:
                 continue
 
@@ -204,19 +264,33 @@ def fetch_ozonetel(last_time, team):
                 call_dt = india.localize(call_dt).astimezone(pytz.UTC)
 
             rows.append({
-                "client_number": str(call.get("E164", ""))[-10:],
+
+                "client_number": str(call.get("E164",""))[-10:],
+
                 "call_datetime": call_dt,
+
                 "call_owner": agent,
+
                 "call_duration": 0,
+
                 "status": call.get("Status"),
+
                 "call_id": call_id,
+
                 "direction": call.get("Type"),
+
                 "service": call.get("Type"),
+
                 "reason": call.get("DialStatus"),
+
                 "call_type": call.get("Type"),
+
                 "source": "Ozonetel",
+
                 "updated_at": datetime.utcnow(),
+
                 "updated_at_ampm": datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
+
             })
 
         except Exception as e:
@@ -224,10 +298,11 @@ def fetch_ozonetel(last_time, team):
             continue
 
     print("Ozonetel rows:", len(rows))
+
     return pd.DataFrame(rows)
 
 
-# ---------------- DEDUP PER SOURCE ----------------
+# ---------------- DEDUP ----------------
 
 def remove_existing(df, source):
 
@@ -240,18 +315,19 @@ def remove_existing(df, source):
         query = f"""
         SELECT call_id
         FROM `{TABLE_ID}`
-        WHERE source = @source
+        WHERE source=@source
         AND call_id IN UNNEST(@ids)
         """
 
         job_config = bigquery.QueryJobConfig(
             query_parameters=[
-                bigquery.ScalarQueryParameter("source", "STRING", source),
-                bigquery.ArrayQueryParameter("ids", "STRING", call_ids)
+                bigquery.ScalarQueryParameter("source","STRING",source),
+                bigquery.ArrayQueryParameter("ids","STRING",call_ids)
             ]
         )
 
         existing = client.query(query, job_config=job_config).to_dataframe()
+
         existing_ids = set(existing["call_id"].tolist())
 
         return df[~df["call_id"].isin(existing_ids)]
@@ -269,6 +345,14 @@ def load_to_bigquery(df):
         print("No rows to insert")
         return
 
+    # ✅ UNIFIED DATETIME (NO DATA LOSS)
+    df["call_datetime"] = pd.to_datetime(df["call_datetime"], errors="coerce", utc=True)
+
+    # ✅ FILL NULL INSTEAD OF DROPPING
+    df["call_datetime"] = df["call_datetime"].fillna(pd.Timestamp.utcnow())
+
+    df["call_duration"] = df["call_duration"].apply(safe_duration)
+
     job = client.load_table_from_dataframe(
         df,
         TABLE_ID,
@@ -276,6 +360,7 @@ def load_to_bigquery(df):
     )
 
     job.result()
+
     print("Inserted rows:", len(df))
 
 
