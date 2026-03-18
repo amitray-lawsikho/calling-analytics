@@ -30,7 +30,11 @@ india = pytz.timezone("Asia/Kolkata")
 client = bigquery.Client()
 
 # ---------------- LAST TIME ----------------
-
+MAX_DAYS_PER_RUN = 5
+end_date = min(
+    datetime.now().date(),
+    start_date + timedelta(days=MAX_DAYS_PER_RUN)
+)
 def get_last_call_time_by_source(source):
 
     try:
@@ -227,8 +231,14 @@ def fetch_ozonetel(last_time, team):
 
     while current_date <= end_date:
 
-        from_date = f"{current_date} 00:00:00"
-        to_date   = f"{current_date} 23:59:59"
+        time_ranges = [
+            ("00:00:00", "11:59:59"),
+            ("12:00:00", "23:59:59")
+        ]
+        
+        for start_t, end_t in time_ranges:
+            from_date = f"{current_date} {start_t}"
+            to_date   = f"{current_date} {end_t}"
 
         print(f"\n📅 Fetching Ozonetel for: {from_date}")
 
@@ -251,6 +261,9 @@ def fetch_ozonetel(last_time, team):
                     },
                     timeout=30
                 )
+
+                if response.status_code == 429:
+                    raise Exception("RATE_LIMIT")
 
                 if response.status_code != 200:
                     raise Exception(f"HTTP {response.status_code}")
@@ -322,15 +335,22 @@ def fetch_ozonetel(last_time, team):
 
             except Exception as e:
                 retries += 1
-                print(f"❌ Retry {retries}/3 failed:", str(e))
-                time.sleep(2)
+            
+                if "RATE_LIMIT" in str(e):
+                    sleep_time = 10 + (retries * 5)   # 10s, 15s, 20s
+                    print(f"🚦 Rate limited. Sleeping {sleep_time}s...")
+                    time.sleep(sleep_time)
+                else:
+                    sleep_time = (2 ** retries) + 1
+                    print(f"❌ Retry {retries}/3 failed: {str(e)} | Sleeping {sleep_time}s")
+                    time.sleep(sleep_time)
 
         if not success:
             print(f"🚨 FAILED DAY: {current_date}")
             failed_days.append(str(current_date))
 
         current_date += timedelta(days=1)
-        time.sleep(0.3)
+        time.sleep(2.5)   # CRITICAL (prevents 429)
 
     print("\n✅ Ozonetel FINAL rows:", len(rows))
 
