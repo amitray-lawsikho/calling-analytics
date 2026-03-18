@@ -10,16 +10,11 @@ from google.cloud import bigquery
 PROJECT_ID = "studious-apex-488820-c3"
 DATASET = "crm_dashboard"
 TABLE = "acefone_calls"
-TEAM_TABLE = "team_list"
 
 TABLE_ID = f"{PROJECT_ID}.{DATASET}.{TABLE}"
-TEAM_TABLE_ID = f"{PROJECT_ID}.{DATASET}.{TEAM_TABLE}"
 
 ACE_API_KEY = os.getenv("ACEFONE_API_KEY")
 ACCOUNT_ID = os.getenv("ACEFONE_ACCOUNT_ID")
-
-OZO_API_KEY = os.getenv("OZONETEL_API_KEY")
-OZO_USERNAME = os.getenv("OZONETEL_USERNAME")
 
 india = pytz.timezone("Asia/Kolkata")
 client = bigquery.Client()
@@ -35,70 +30,29 @@ def safe_duration(x):
     except:
         return 0
 
-def parse_ozonetel_datetime(call_date, start_time):
-
-    if not call_date or not start_time:
-        return None
-
-    dt_str = f"{call_date} {start_time}"
-
-    for fmt in ["%d/%m/%Y %H:%M:%S", "%d-%m-%Y %H:%M:%S"]:
-        try:
-            naive = datetime.strptime(dt_str, fmt)
-            ist_dt = india.localize(naive)
-            return ist_dt.astimezone(pytz.UTC)
-        except:
-            continue
-
-    return None
-
-# ---------------- TEAM LIST FROM BIGQUERY ----------------
-
-def get_team_agents():
-    try:
-        df = client.query(f"""
-            SELECT DISTINCT Caller_Name
-            FROM `{TEAM_TABLE_ID}`
-            WHERE Caller_Name IS NOT NULL
-        """).to_dataframe()
-
-        # ✅ Exact values (no normalization)
-        team_agents = set(df["Caller_Name"].astype(str).str.strip())
-
-        print("Team agents loaded:", len(team_agents))
-
-        return team_agents
-
-    except Exception as e:
-        print("Error loading team list:", e)
-        return set()
-
 # ---------------- INCREMENTAL ----------------
 
-def get_last_call_time_by_source(source):
+def get_last_call_time():
     try:
         df = client.query(f"""
             SELECT MAX(call_datetime) AS last_time
             FROM `{TABLE_ID}`
-            WHERE source = '{source}'
+            WHERE source = 'Acefone'
         """).to_dataframe()
 
         last_time = df.iloc[0]["last_time"]
 
+        # First run → last 2 days
         if pd.isna(last_time):
-            print(f"{source} first run → 2 days back")
             return datetime.utcnow() - timedelta(days=2)
 
-        buffered_time = last_time - timedelta(minutes=30)
+        # 30 min buffer
+        return last_time - timedelta(minutes=30)
 
-        print(f"{source} incremental from:", buffered_time)
-        return buffered_time
-
-    except Exception as e:
-        print("Error fetching last time:", e)
+    except:
         return datetime.utcnow() - timedelta(days=2)
 
-# ---------------- ACEFONE ----------------
+# ---------------- ACEFONE FETCH ----------------
 
 def fetch_acefone(last_time):
 
@@ -133,6 +87,7 @@ def fetch_acefone(last_time):
             break
 
         for call in data:
+
             dt = pd.to_datetime(call.get("end_stamp"), utc=True, errors="coerce")
 
             if pd.isna(dt):
@@ -158,102 +113,20 @@ def fetch_acefone(last_time):
 
     return pd.DataFrame(rows)
 
-# ---------------- OZONETEL ----------------
-
-def fetch_ozonetel(last_time, team_agents):
-
-    rows = []
-
-    start_date = last_time.date()
-    end_date = datetime.now().date()
-
-    while start_date <= end_date:
-
-        for s, e in [("00:00:00","11:59:59"), ("12:00:00","23:59:59")]:
-
-            body = {
-                "fromDate": f"{start_date} {s}",
-                "toDate": f"{start_date} {e}",
-                "userName": OZO_USERNAME
-            }
-
-            res = requests.get(
-                "https://in1-ccaas-api.ozonetel.com/ca_reports/fetchCDRDetails",
-                headers={
-                    "Content-Type": "application/json",
-                    "apiKey": OZO_API_KEY
-                },
-                json=body
-            )
-
-            try:
-                data = res.json()
-            except:
-                continue
-
-            if data.get("status") == "false":
-                print("OZO API ERROR:", data.get("message"))
-                continue
-
-            details = data.get("details", [])
-            print("RAW OZO DETAILS COUNT:", len(details))
-
-            if not details:
-                continue
-
-            for call in details:
-
-                dt = parse_ozonetel_datetime(
-                    call.get("CallDate"),
-                    call.get("StartTime")
-                )
-
-                if not dt:
-                    continue
-
-                agent = str(call.get("AgentName","")).strip()
-
-                # ✅ EXACT MATCH FROM BIGQUERY
-                if agent not in team_agents:
-                    continue
-
-                rows.append({
-                    "client_number": str(call.get("E164",""))[-10:],
-                    "call_datetime": dt,
-                    "call_owner": agent,
-                    "call_duration": safe_duration(call.get("Duration")),
-                    "status": call.get("Status") or call.get("DialStatus"),
-                    "call_id": "OZO_" + str(call.get("CallID")),
-                    "direction": call.get("Type"),
-                    "service": call.get("Type"),
-                    "reason": call.get("DialStatus"),
-                    "call_type": call.get("Type"),
-                    "source": "Ozonetel",
-                    "updated_at": datetime.utcnow(),
-                    "updated_at_ampm": datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
-                })
-
-        start_date += timedelta(days=1)
-
-    df = pd.DataFrame(rows)
-
-    print("Ozonetel rows AFTER FILTER:", df.shape)
-
-    return df
-
 # ---------------- LOAD ----------------
 
 def load_to_bigquery(df):
 
     if df.empty:
-        print("No data to load")
         return
 
     df = df.copy()
 
+    # Deduplicate by call_id
     df = df.drop_duplicates(subset=["call_id"])
 
-    df.loc[:, "call_datetime"] = pd.to_datetime(df["call_datetime"], utc=True, errors="coerce")
+    # Ensure proper UTC timestamp
+    df["call_datetime"] = pd.to_datetime(df["call_datetime"], utc=True, errors="coerce")
     df = df[df["call_datetime"].notna()]
 
     df["call_duration"] = pd.to_numeric(df["call_duration"], errors="coerce").fillna(0).astype(int)
@@ -262,8 +135,6 @@ def load_to_bigquery(df):
         if df[col].dtype == "object":
             df[col] = df[col].astype(str)
 
-    print("FINAL SOURCE SPLIT:\n", df["source"].value_counts())
-
     job = client.load_table_from_dataframe(
         df,
         TABLE_ID,
@@ -271,28 +142,16 @@ def load_to_bigquery(df):
     )
 
     job.result()
-    print("Inserted:", len(df))
 
 # ---------------- MAIN ----------------
 
 def run_pipeline():
 
-    team_agents = get_team_agents()
+    last_time = get_last_call_time()
 
-    ace_last = get_last_call_time_by_source("Acefone")
-    ozo_last = get_last_call_time_by_source("Ozonetel")
+    ace_df = fetch_acefone(last_time)
 
-    ace_df = fetch_acefone(ace_last)
-    ozo_df = fetch_ozonetel(ozo_last, team_agents)
-
-    print("ACE ROWS:", len(ace_df))
-    print("OZO ROWS:", len(ozo_df))
-
-    final_df = pd.concat([ace_df, ozo_df], ignore_index=True)
-
-    load_to_bigquery(final_df)
-
-    print("DONE")
+    load_to_bigquery(ace_df)
 
 if __name__ == "__main__":
     run_pipeline()
