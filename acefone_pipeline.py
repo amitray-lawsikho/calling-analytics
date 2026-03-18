@@ -177,7 +177,7 @@ def fetch_acefone(last_time):
 
                         "status": "Answered" if call.get("status") == "answered" else "Missed",
 
-                        "call_id": call_id,
+                        "call_id": str(call_id),
 
                         "direction": call.get("direction"),
 
@@ -239,15 +239,113 @@ def fetch_ozonetel(last_time, team):
         ]
         
         for start_t, end_t in time_ranges:
-            from_date = f"{current_date} {start_t}"
-            to_date   = f"{current_date} {end_t}"
 
-        print(f"\n📅 Fetching Ozonetel for: {from_date}")
+    from_date = f"{current_date} {start_t}"
+    to_date   = f"{current_date} {end_t}"
 
-        success = False
-        retries = 0
+    print(f"\n📅 Fetching Ozonetel for: {from_date} → {to_date}")
 
-        while not success and retries < 3:
+    success = False
+    retries = 0
+
+    while not success and retries < 3:
+
+        try:
+            response = requests.get(
+                OZO_URL,
+                headers={
+                    "Content-Type": "application/json",
+                    "apiKey": OZO_API_KEY
+                },
+                json={
+                    "fromDate": from_date,
+                    "toDate": to_date,
+                    "userName": OZO_USERNAME
+                },
+                timeout=30
+            )
+
+            if response.status_code == 429:
+                raise Exception("RATE_LIMIT")
+
+            if response.status_code != 200:
+                raise Exception(f"HTTP {response.status_code}")
+
+            data = response.json()
+
+            if data.get("status") == "false":
+                raise Exception(data.get("message"))
+
+            details = data.get("details", [])
+
+            print(f"📊 Raw records: {len(details)}")
+
+            for call in details:
+                try:
+                    if not call or not isinstance(call, dict):
+                        continue
+
+                    agent = str(call.get("AgentName", "")).strip().lower()
+
+                    if team_clean and agent not in team_clean:
+                        continue
+
+                    call_id = str(call.get("CallID"))
+                    if not call_id:
+                        continue
+
+                    call_dt = pd.to_datetime(
+                        f"{call.get('CallDate')} {call.get('StartTime')}",
+                        format="%d/%m/%Y %H:%M:%S",
+                        errors="coerce"
+                    )
+
+                    if pd.notna(call_dt):
+                        call_dt = india.localize(call_dt).astimezone(pytz.UTC)
+
+                    def time_to_seconds(t):
+                        try:
+                            h, m, s = map(int, str(t).split(":"))
+                            return h*3600 + m*60 + s
+                        except:
+                            return 0
+
+                    rows.append({
+                        "client_number": str(call.get("E164",""))[-10:],
+                        "call_datetime": call_dt,
+                        "call_owner": call.get("AgentName"),
+                        "call_duration": time_to_seconds(call.get("Duration")),
+                        "status": call.get("Status") or call.get("DialStatus"),
+                        "call_id": call_id,
+                        "direction": call.get("Type"),
+                        "service": call.get("Type"),
+                        "reason": call.get("DialStatus"),
+                        "call_type": call.get("Type"),
+                        "source": "Ozonetel",
+                        "updated_at": datetime.utcnow(),
+                        "updated_at_ampm": datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
+                    })
+
+                except Exception as row_err:
+                    print("⚠️ Row error:", str(row_err))
+                    continue
+
+            success = True
+
+        except Exception as e:
+            retries += 1
+
+            if "RATE_LIMIT" in str(e):
+                sleep_time = 10 + (retries * 5)
+                print(f"🚦 Rate limited. Sleeping {sleep_time}s...")
+                time.sleep(sleep_time)
+            else:
+                sleep_time = (2 ** retries) + 1
+                print(f"❌ Retry {retries}/3 failed: {str(e)} | Sleeping {sleep_time}s")
+                time.sleep(sleep_time)
+
+    if not success:
+        print(f"🚨 FAILED SLOT: {from_date}")
 
             try:
                 response = requests.get(
@@ -291,7 +389,7 @@ def fetch_ozonetel(last_time, team):
                         if team_clean and agent not in team_clean:
                             continue
 
-                        call_id = call.get("CallID")
+                        call_id = str(call.get("CallID"))
                         if not call_id:
                             continue
 
@@ -404,15 +502,26 @@ def load_to_bigquery(df):
     if df.empty:
         print("No rows to insert")
         return
-
+    df["call_id"] = df["call_id"].astype(str)
     # ✅ UNIFIED DATETIME (NO DATA LOSS)
     df["call_datetime"] = pd.to_datetime(df["call_datetime"], errors="coerce", utc=True)
+    df = df[df["call_datetime"].notna()]
 
     # ✅ FILL NULL INSTEAD OF DROPPING
     df["call_datetime"] = df["call_datetime"].fillna(pd.Timestamp.utcnow())
 
     df["call_duration"] = df["call_duration"].apply(safe_duration)
-
+    string_cols = [
+        "client_number","call_owner","status","call_id",
+        "direction","service","reason","call_type","source","updated_at_ampm"
+    ]
+    
+    for col in string_cols:
+        if col in df.columns:
+            df[col] = df[col].astype(str)
+    
+    # ✅ SAFE NUMERIC
+    df["call_duration"] = pd.to_numeric(df["call_duration"], errors="coerce").fillna(0).astype(int)
     job = client.load_table_from_dataframe(
         df,
         TABLE_ID,
