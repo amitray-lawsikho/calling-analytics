@@ -30,11 +30,7 @@ india = pytz.timezone("Asia/Kolkata")
 client = bigquery.Client()
 
 # ---------------- LAST TIME ----------------
-MAX_DAYS_PER_RUN = 5
-end_date = min(
-    datetime.now().date(),
-    start_date + timedelta(days=MAX_DAYS_PER_RUN)
-)
+
 def get_last_call_time_by_source(source):
 
     try:
@@ -223,7 +219,13 @@ def fetch_ozonetel(last_time, team):
     failed_days = []
 
     start_date = (last_time - timedelta(days=2)).date()
-    end_date = datetime.now().date()
+
+    MAX_DAYS_PER_RUN = 7  # you can tune this (3–7 ideal)
+    
+    end_date = min(
+        datetime.now().date(),
+        start_date + timedelta(days=MAX_DAYS_PER_RUN)
+    )
 
     team_clean = set([x.strip().lower() for x in team])
 
