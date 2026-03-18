@@ -132,6 +132,7 @@ def fetch_acefone(last_time):
                     "service": call.get("service"),
                     "reason": call.get("reason"),
                     "call_type": call.get("dialer_call_details", {}).get("call_type"),
+                    "source": "Acefone",
                     "updated_at": datetime.utcnow(),
                     "updated_at_ampm": datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
                 })
@@ -169,7 +170,6 @@ def fetch_ozonetel(last_time, team):
     try:
         response = requests.get(OZO_URL, headers=headers, json=payload)
         data = response.json()
-
     except:
         print("Ozonetel API failed")
         return []
@@ -185,7 +185,6 @@ def fetch_ozonetel(last_time, team):
         try:
             agent = str(call.get("AgentName", "")).strip()
 
-            # ✅ TEAM FILTER
             if team and agent not in team:
                 continue
 
@@ -193,12 +192,14 @@ def fetch_ozonetel(last_time, team):
             if not call_id:
                 continue
 
-            # ✅ COMBINE DATE + TIME
             call_dt = pd.to_datetime(
                 f"{call.get('CallDate')} {call.get('StartTime')}",
-                format="%d-%m-%Y %H:%M:%S",
+                format="%d/%m/%Y %H:%M:%S",
                 errors="coerce"
             )
+
+            if pd.notna(call_dt):
+                call_dt = india.localize(call_dt).astimezone(pytz.UTC)
 
             def to_sec(t):
                 try:
@@ -218,6 +219,7 @@ def fetch_ozonetel(last_time, team):
                 "service": call.get("Type"),
                 "reason": call.get("DialStatus"),
                 "call_type": call.get("Type"),
+                "source": "Ozonetel",
                 "updated_at": datetime.utcnow(),
                 "updated_at_ampm": datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
             })
@@ -269,12 +271,23 @@ def load_to_bigquery(rows):
         return
 
     df = pd.DataFrame(rows)
+
     df["call_id"] = df["call_id"].astype(str)
     df["client_number"] = df["client_number"].astype(str)
-    df["call_datetime"] = pd.to_datetime(df["call_datetime"], utc=True, errors="coerce")
-    df["call_duration"] = pd.to_numeric(df["call_duration"], errors="coerce").fillna(0).astype(int)
+
+    df["call_datetime"] = pd.to_datetime(
+        df["call_datetime"],
+        utc=True,
+        errors="coerce"
+    )
+
+    df["call_duration"] = pd.to_numeric(
+        df["call_duration"],
+        errors="coerce"
+    ).fillna(0).astype(int)
 
     df.drop_duplicates(subset=["call_id"], inplace=True)
+
     df = remove_existing(df)
 
     if df.empty:
@@ -284,7 +297,9 @@ def load_to_bigquery(rows):
     job = client.load_table_from_dataframe(
         df,
         TABLE_ID,
-        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
+        job_config=bigquery.LoadJobConfig(
+            write_disposition="WRITE_APPEND"
+        )
     )
 
     job.result()
