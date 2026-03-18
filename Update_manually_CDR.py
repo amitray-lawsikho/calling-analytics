@@ -279,7 +279,7 @@ def load_to_bigquery(rows):
 def run_pipeline():
 
     end_time = datetime.now(india)
-    start_time = end_time - timedelta(days=10)
+    start_time = end_time - timedelta(days=2)
 
     print(f"Fetching from {start_time} to {end_time}")
 
@@ -292,7 +292,7 @@ def run_pipeline():
 
     load_to_bigquery(all_rows)
 
-    print("✅ 10-day backfill completed")
+    print("✅ 2-day backfill completed")
 
 
 if __name__ == "__main__":
