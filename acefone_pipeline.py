@@ -53,16 +53,15 @@ def get_last_call_time():
         """).to_dataframe()
 
         last_time = df.iloc[0]["last_time"]
-
         # First run → last 2 days
         if pd.isna(last_time):
-            return datetime.utcnow() - timedelta(days=2)
-
+            return datetime.now(india) - timedelta(days=2)
+        
         # 30 min buffer
-        return last_time - timedelta(minutes=30)
-
-    except:
-        return datetime.utcnow() - timedelta(days=2)
+        return last_time.astimezone(india) - timedelta(minutes=30)
+        
+        except:
+            return datetime.now(india) - timedelta(days=2)
 
 # ---------------- ACEFONE FETCH ----------------
 
