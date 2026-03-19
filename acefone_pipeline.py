@@ -21,10 +21,12 @@ client = bigquery.Client()
 # ---------------- LOG FUNCTION ----------------
 def log_pipeline(pipeline_name, rows):
 
+    ist_now = datetime.now(india)
+
     log_data = [{
-        "run_date": datetime.now(india).date(),
+        "run_date": ist_now.date(),
         "pipeline_name": pipeline_name,
-        "run_timestamp": datetime.utcnow(),
+        "run_timestamp": ist_now.strftime("%d/%m/%Y %I:%M %p"),  # 👈 AM/PM format
         "rows_inserted": int(rows)
     }]
 
