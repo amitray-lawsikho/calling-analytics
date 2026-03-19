@@ -147,7 +147,6 @@ df["Phone"] = (
 
 df.drop_duplicates(subset=["ProspectID"], inplace=True)
 if df.empty:
-    print("⚠️ No data fetched from LSQ")
     log_pipeline("LSQ", 0)
     exit()
 # ADD DATE FIELD
