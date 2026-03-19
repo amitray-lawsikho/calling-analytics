@@ -166,7 +166,6 @@ df["updated_at_ampm"] = now.strftime("%d/%m/%Y %I:%M %p")
 
 df = df[df["Date"].notna()]
 if df.empty:
-    print("⚠️ No revenue data after filtering")
     log_pipeline("REVENUE", 0)
     exit()
 # LOAD TO BIGQUERY
