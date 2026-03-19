@@ -18,12 +18,12 @@ table_id = f"{PROJECT_ID}.{DATASET}.{TABLE}"
 # LOG FUNCTION
 def log_pipeline(pipeline_name, rows):
 
-    ist_now = datetime.now(india)
+    ist_now = datetime.now(india_tz)
 
     log_data = [{
         "run_date": ist_now.date(),
         "pipeline_name": pipeline_name,
-        "run_timestamp": ist_now.strftime("%d/%m/%Y %I:%M %p"),  # 👈 AM/PM format
+        "run_timestamp": ist_now.strftime("%d/%m/%Y %I:%M %p"), 
         "rows_inserted": int(rows)
     }]
 
@@ -197,4 +197,5 @@ job = client.load_table_from_dataframe(
 )
 
 job.result()
+rows_count = len(df) 
 log_pipeline("LSQ", rows_count)
