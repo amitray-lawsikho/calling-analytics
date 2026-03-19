@@ -18,29 +18,27 @@ ACCOUNT_ID = os.getenv("ACEFONE_ACCOUNT_ID")
 
 india = pytz.timezone("Asia/Kolkata")
 client = bigquery.Client()
+
 # ---------------- LOG FUNCTION ----------------
 def log_pipeline(pipeline_name, rows):
-
     ist_now = datetime.now(india)
 
     log_data = [{
         "run_date": ist_now.date(),
         "pipeline_name": pipeline_name,
-        "run_timestamp": ist_now.strftime("%d/%m/%Y %I:%M %p"),  # 👈 AM/PM format
+        "run_timestamp": ist_now.strftime("%d/%m/%Y %I:%M %p"),
         "rows_inserted": int(rows)
     }]
 
-    df = pd.DataFrame(log_data)
+    df_log = pd.DataFrame(log_data)
 
-    job = client.load_table_from_dataframe(
-        df,
+    client.load_table_from_dataframe(
+        df_log,
         LOG_TABLE,
         job_config=bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
-    )
+    ).result()
 
-    job.result()
 # ---------------- HELPERS ----------------
-
 def safe_duration(x):
     try:
         if isinstance(x, str) and ":" in x:
@@ -50,20 +48,7 @@ def safe_duration(x):
     except:
         return 0
 
-# ---------------- RECENT BQ DATA ----------------
-def fetch_recent_bq_data(last_time):
-
-    query = f"""
-        SELECT *
-        FROM `{TABLE_ID}`
-        WHERE call_datetime >= TIMESTAMP('{last_time.strftime("%Y-%m-%d %H:%M:%S")}')
-        AND source = 'Acefone'
-    """
-
-    return client.query(query).to_dataframe()
-
-# ---------------- INCREMENTAL ----------------
-
+# ---------------- GET LAST TIME ----------------
 def get_last_call_time():
     try:
         df = client.query(f"""
@@ -74,18 +59,28 @@ def get_last_call_time():
 
         last_time = df.iloc[0]["last_time"]
 
-        # First run → last 2 days
         if pd.isna(last_time):
             return datetime.now(india) - timedelta(days=2)
 
-        # 30 min buffer + UTC → IST
+        if last_time.tzinfo is None:
+            last_time = pytz.utc.localize(last_time)
+
         return last_time.astimezone(india) - timedelta(minutes=30)
 
     except:
         return datetime.now(india) - timedelta(days=2)
 
-# ---------------- ACEFONE FETCH ----------------
+# ---------------- FETCH RECENT BQ DATA ----------------
+def fetch_recent_bq_data(last_time):
+    query = f"""
+        SELECT *
+        FROM `{TABLE_ID}`
+        WHERE call_datetime >= TIMESTAMP('{last_time.strftime("%Y-%m-%d %H:%M:%S")}')
+        AND source = 'Acefone'
+    """
+    return client.query(query).to_dataframe()
 
+# ---------------- FETCH ACEFONE ----------------
 def fetch_acefone(last_time):
 
     headers = {
@@ -95,6 +90,7 @@ def fetch_acefone(last_time):
 
     rows = []
     page = 1
+    seen_ids = set()
 
     while True:
 
@@ -112,14 +108,25 @@ def fetch_acefone(last_time):
         )
 
         if res.status_code != 200:
+            print("❌ API error:", res.status_code)
             break
 
         data = res.json().get("results", [])
+
         if not data:
+            print("✅ No more data")
             break
 
-        for call in data:
+        current_ids = {str(call.get("call_id")) for call in data}
 
+        # 🔥 STOP duplicate page loop
+        if current_ids.issubset(seen_ids):
+            print("⚠️ Duplicate page detected, stopping")
+            break
+
+        seen_ids.update(current_ids)
+
+        for call in data:
             dt = pd.to_datetime(call.get("end_stamp"), utc=True, errors="coerce")
 
             if pd.isna(dt):
@@ -141,18 +148,27 @@ def fetch_acefone(last_time):
                 "updated_at_ampm": datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
             })
 
+        print(f"📄 Page {page}: {len(data)} records")
+
+        if len(data) < 1000:
+            print("✅ Last page reached")
+            break
+
         page += 1
+
+        if page > 50:
+            print("⚠️ Max page limit reached")
+            break
 
     df = pd.DataFrame(rows)
 
     if not df.empty:
         df["call_datetime"] = pd.to_datetime(df["call_datetime"], utc=True, errors="coerce")
         df = df[df["call_datetime"].notna()]
-    
+
     return df
 
 # ---------------- LOAD ----------------
-
 def load_to_bigquery(df):
 
     if df.empty:
@@ -160,60 +176,52 @@ def load_to_bigquery(df):
 
     df = df.copy()
 
-    # Deduplicate
-    df = df.drop_duplicates(subset=["call_id"])
+    # 🔥 KEEP ONLY TRUE DUPES FIXED
+    df = df.drop_duplicates(subset=["call_id", "call_datetime"])
 
-    # Ensure timestamps
     df["call_datetime"] = pd.to_datetime(df["call_datetime"], utc=True, errors="coerce")
     df["updated_at"] = pd.to_datetime(df["updated_at"], utc=True, errors="coerce")
 
     df = df[df["call_datetime"].notna()]
 
-    # Numeric
     df["call_duration"] = pd.to_numeric(df["call_duration"], errors="coerce").fillna(0).astype(int)
 
-    # Convert ONLY non-timestamp object columns
     for col in df.columns:
         if df[col].dtype == "object" and col not in ["updated_at", "call_datetime"]:
             df[col] = df[col].astype(str)
 
-    job = client.load_table_from_dataframe(
+    client.load_table_from_dataframe(
         df,
         TABLE_ID,
         job_config=bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
-    )
-
-    job.result()
+    ).result()
 
 # ---------------- MAIN ----------------
-
 def run_pipeline():
 
     last_time = get_last_call_time()
-
     print("⏱ Fetching from:", last_time)
 
-    # 🔹 Step 1: Fetch API
     ace_df = fetch_acefone(last_time)
-
-    # 🔹 Step 2: Fetch recent BigQuery data
     bq_df = fetch_recent_bq_data(last_time)
 
-    # 🔹 Step 3: Combine both
     combined_df = pd.concat([bq_df, ace_df], ignore_index=True)
-    combined_df = combined_df.drop_duplicates(subset=["call_id"])
+    combined_df = combined_df.drop_duplicates(subset=["call_id", "call_datetime"])
 
     new_data = combined_df[combined_df["call_id"].isin(ace_df["call_id"])]
-    
-    rows_count = len(new_data) 
-    print("New records to insert:", rows_count)   
+
+    rows_count = len(new_data)
+    print("New records to insert:", rows_count)
+
     if new_data.empty:
         print("⚠️ No new data")
         log_pipeline("ACEFONE", 0)
         return
-    
+
     load_to_bigquery(new_data)
+
     log_pipeline("ACEFONE", rows_count)
-    
+    print("✅ Acefone pipeline completed")
+
 if __name__ == "__main__":
     run_pipeline()
