@@ -45,6 +45,7 @@ jobs:
       env:
         OZONETEL_API_KEY: ${{ secrets.OZONETEL_API_KEY }}
         OZONETEL_USERNAME: ${{ secrets.OZONETEL_USERNAME }}
+        TEAM_SHEET_URL: ${{ secrets.TEAM_SHEET_URL }}
 
     # ---------------- ACEFONE PIPELINE ---------------
     - name: Run Calling Pipeline (Unified)
