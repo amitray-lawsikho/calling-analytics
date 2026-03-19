@@ -45,10 +45,8 @@ def get_team_map():
         df = df[df["Caller Name"].notna()]
         df["clean"] = df["Caller Name"].astype(str).str.strip().str.lower()
         team_map = dict(zip(df["clean"], df["Caller Name"]))
-        print(f"✅ Loaded {len(team_map)} agents from sheet")
         return team_map
     except Exception as e:
-        print("❌ Team sheet error:", e)
         return {}
 
 # ================= GET RECENT BQ DATA =================
@@ -61,10 +59,8 @@ def get_recent_bq_data(last_time):
         """
         df = client.query(query).to_dataframe()
         if not df.empty:
-            print(f"🟢 Pulled {len(df)} records from BQ for dedup")
         return df
     except Exception as e:
-        print("BQ fetch error:", e)
         return pd.DataFrame()
 
 # ================= LAST END TIME =================
@@ -143,18 +139,14 @@ def run_pipeline():
     current = start_date
 
     while current <= end_date:
-        print(f"📡 Fetching: {current}")
         df = fetch_day(datetime.combine(current, datetime.min.time()), team_map)
         if not df.empty:
             all_data.append(df)
-            print(f"✅ {len(df)} records")
         else:
-            print("⚠️ No data")
         time.sleep(40)  # small delay
         current += timedelta(days=1)
 
     if not all_data and bq_df.empty:
-        print("❌ No data to push")
         log_pipeline("OZONETEL", 0)
         return
 
@@ -171,7 +163,6 @@ def run_pipeline():
         final_df = final_df[final_df["_merge"] == "left_only"].drop(columns=["_merge"])
 
     rows_count = len(final_df)
-    print(f"🚀 Final push records: {rows_count}")
 
     if final_df.empty:
         log_pipeline("OZONETEL", 0)
@@ -184,7 +175,6 @@ def run_pipeline():
     )
     job.result()
     log_pipeline("OZONETEL", rows_count)
-    print("✅ Ozonetel data pushed")
 
 if __name__ == "__main__":
     run_pipeline()
