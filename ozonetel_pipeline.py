@@ -66,6 +66,8 @@ def get_last_time():
         if pd.isna(last_time):
             return datetime.now(india) - timedelta(days=2)
 
+        if last_time.tzinfo is None:
+            last_time = pytz.utc.localize(last_time)
         return last_time.astimezone(india) - timedelta(minutes=30)
 
     except:
@@ -158,7 +160,7 @@ def fetch_day(day, team_map):
                 ]
             ]
 
-        time.sleep(35)
+        time.sleep(40)
 
     return pd.DataFrame()
 
@@ -190,7 +192,7 @@ def run_pipeline():
         else:
             print("⚠️ No data")
 
-        time.sleep(35)
+        time.sleep(40)
         current += timedelta(days=1)
 
     if not all_data and bq_df.empty:
@@ -198,7 +200,8 @@ def run_pipeline():
         return
 
     api_df = pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame()
-
+    if not api_df.empty:
+        api_df = api_df.drop_duplicates(subset=["CallID"])
     final_df = pd.concat([api_df, bq_df], ignore_index=True)
 
     print(f"📊 Before dedup: {len(final_df)}")
@@ -207,8 +210,7 @@ def run_pipeline():
 
     print(f"✅ After dedup: {len(final_df)}")
 
-    if not bq_df.empty:
-        final_df = final_df[~final_df["CallID"].isin(bq_df["CallID"])]
+    final_df = final_df[final_df["CallID"].isin(api_df["CallID"])]
 
     print(f"🚀 Final push records: {len(final_df)}")
 
