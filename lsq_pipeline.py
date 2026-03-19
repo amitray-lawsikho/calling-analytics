@@ -13,10 +13,29 @@ SECRET_KEY = os.environ["LSQ_SECRET_KEY"]
 PROJECT_ID = "studious-apex-488820-c3"
 DATASET = "crm_dashboard"
 TABLE = "lsq_leads"
-
+LOG_TABLE = f"{PROJECT_ID}.crm_scheduled_results.MASTER_QUERY_REFRESH"
 table_id = f"{PROJECT_ID}.{DATASET}.{TABLE}"
+# LOG FUNCTION
+def log_pipeline(pipeline_name, rows):
 
+    ist_now = datetime.now(india)
 
+    log_data = [{
+        "run_date": ist_now.date(),
+        "pipeline_name": pipeline_name,
+        "run_timestamp": ist_now.strftime("%d/%m/%Y %I:%M %p"),  # 👈 AM/PM format
+        "rows_inserted": int(rows)
+    }]
+
+    df = pd.DataFrame(log_data)
+
+    job = client.load_table_from_dataframe(
+        df,
+        LOG_TABLE,
+        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
+    )
+
+    job.result()
 # TIME WINDOW (LAST 59 DAYS)
 india_tz = pytz.timezone("Asia/Kolkata")
 now = datetime.now(india_tz)
@@ -178,4 +197,4 @@ job = client.load_table_from_dataframe(
 )
 
 job.result()
-
+log_pipeline("LSQ", rows_count)
