@@ -10,7 +10,7 @@ from google.cloud import bigquery
 PROJECT_ID = "studious-apex-488820-c3"
 DATASET = "crm_dashboard"
 TABLE = "ozonetel_calls"
-
+LOG_TABLE = f"{PROJECT_ID}.crm_scheduled_results.MASTER_QUERY_REFRESH"
 TABLE_ID = f"{PROJECT_ID}.{DATASET}.{TABLE}"
 
 API_URL = "https://in1-ccaas-api.ozonetel.com/ca_reports/fetchCDRDetails"
@@ -20,6 +20,27 @@ TEAM_SHEET_URL = os.getenv("TEAM_SHEET_URL")
 
 client = bigquery.Client()
 india = pytz.timezone("Asia/Kolkata")
+
+def log_pipeline(pipeline_name, rows):
+
+    ist_now = datetime.now(india)
+
+    log_data = [{
+        "run_date": ist_now.date(),
+        "pipeline_name": pipeline_name,
+        "run_timestamp": ist_now.strftime("%d/%m/%Y %I:%M %p"),  # 👈 AM/PM format
+        "rows_inserted": int(rows)
+    }]
+
+    df = pd.DataFrame(log_data)
+
+    job = client.load_table_from_dataframe(
+        df,
+        LOG_TABLE,
+        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
+    )
+
+    job.result()
 
 # ================= GET TEAM LIST (FROM SHEET) =================
 def get_team_map():
@@ -238,7 +259,7 @@ def run_pipeline():
     )
 
     job.result()
-
+    log_pipeline("OZONETEL", rows_count)
     print("✅ Ozonetel data pushed")
 
 if __name__ == "__main__":
