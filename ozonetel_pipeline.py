@@ -60,8 +60,9 @@ def get_recent_bq_data(last_time):
         df = client.query(query).to_dataframe()
         if not df.empty:
             return df
-        except Exception as e:
-            return pd.DataFrame()
+        return pd.DataFrame()
+    except Exception as e:
+        return pd.DataFrame()
 
 # ================= LAST END TIME =================
 def get_last_time():
@@ -97,34 +98,43 @@ def fetch_day(day, team_map):
         details = data.get("details", [])
         if details:
             df = pd.DataFrame(details)
-            # Agent cleaning
+
+            # -------- AGENT CLEANING --------
             df["AgentName"] = df["AgentName"].astype(str).str.strip()
             df["clean"] = df["AgentName"].str.lower()
             df = df[df["clean"].isin(team_map.keys())]
             df["AgentName"] = df["clean"].map(team_map)
-            # Duration
+
+            # -------- TIME --------
             df["duration_sec"] = df["Duration"].apply(time_to_seconds)
             df["talktime_sec"] = df["TalkTime"].apply(time_to_seconds)
-            # Timestamps
+
+            # -------- TIMESTAMP FIX --------
             df["StartTime"] = pd.to_datetime(day.strftime("%Y-%m-%d") + " " + df["StartTime"].astype(str), errors="coerce")
             df["EndTime"]   = pd.to_datetime(day.strftime("%Y-%m-%d") + " " + df["EndTime"].astype(str), errors="coerce")
             df["StartTime"] = df["StartTime"].dt.tz_localize(india).dt.tz_convert("UTC")
             df["EndTime"]   = df["EndTime"].dt.tz_localize(india).dt.tz_convert("UTC")
-            # Final columns
+
+            # -------- FINAL --------
             df["CallDate"] = day.date()
             df["CallID"] = df["CallID"].astype(str)
             df["phone_number"] = df["E164"].astype(str).str[-10:]
             df["Source"] = "Ozonetel"
             df["updated_at_ampm"] = datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
+
             skill_col = "Skill" if "Skill" in df.columns else "skillName"
             status_col = "Status" if "Status" in df.columns else "DialStatus"
             df = df.rename(columns={status_col:"Status", skill_col:"Skill", "CampaignName":"campaignName"})
+
             return df[
                 ["CallDate","CallID","AgentName","Status","Disposition","StartTime","EndTime",
                  "duration_sec","talktime_sec","Skill","Type","campaignName","CallFlow",
                  "phone_number","Source","updated_at_ampm"]
             ]
+
+        # delay if no data
         time.sleep(40)
+
     return pd.DataFrame()
 
 # ================= MAIN PIPELINE =================
@@ -143,7 +153,7 @@ def run_pipeline():
         if not df.empty:
             all_data.append(df)
         else:
-        time.sleep(40)  # small delay
+            time.sleep(40)  # ✅ properly indented
         current += timedelta(days=1)
 
     if not all_data and bq_df.empty:
@@ -157,13 +167,13 @@ def run_pipeline():
         api_df = api_df.drop_duplicates(subset=["CallID", "StartTime", "EndTime"], keep="last")
 
     # Combine with BQ and only push NEW rows
-    final_df = pd.concat([api_df, bq_df], ignore_index=True)
     if not bq_df.empty:
-        final_df = final_df.merge(bq_df[["CallID","StartTime","EndTime"]], on=["CallID","StartTime","EndTime"], how="left", indicator=True)
-        final_df = final_df[final_df["_merge"] == "left_only"].drop(columns=["_merge"])
+        final_df = api_df.merge(bq_df[["CallID","StartTime","EndTime"]], on=["CallID","StartTime","EndTime"], how="left", indicator=True)
+        final_df = final_df[final_df["_merge"]=="left_only"].drop(columns=["_merge"])
+    else:
+        final_df = api_df
 
     rows_count = len(final_df)
-
     if final_df.empty:
         log_pipeline("OZONETEL", 0)
         return
@@ -175,6 +185,7 @@ def run_pipeline():
     )
     job.result()
     log_pipeline("OZONETEL", rows_count)
+    print(f"✅ Ozonetel data pushed ({rows_count} rows)")
 
 if __name__ == "__main__":
     run_pipeline()
