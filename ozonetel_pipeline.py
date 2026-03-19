@@ -245,11 +245,12 @@ def run_pipeline():
     # 🔥 Only push NEW records
     if not bq_df.empty:
         final_df = final_df[~final_df["CallID"].isin(bq_df["CallID"])]
-
+    
+    rows_count = len(final_df) 
     print(f"🚀 Final push records: {len(final_df)}")
 
     if final_df.empty:
-        print("⚠️ Nothing new to push")
+        log_pipeline("OZONETEL", 0)
         return
 
     job = client.load_table_from_dataframe(
