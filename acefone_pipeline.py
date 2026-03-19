@@ -73,15 +73,16 @@ def get_last_call_time():
         """).to_dataframe()
 
         last_time = df.iloc[0]["last_time"]
+
         # First run → last 2 days
         if pd.isna(last_time):
             return datetime.now(india) - timedelta(days=2)
-        
-        # 30 min buffer
+
+        # 30 min buffer + UTC → IST
         return last_time.astimezone(india) - timedelta(minutes=30)
-        
-        except:
-            return datetime.now(india) - timedelta(days=2)
+
+    except:
+        return datetime.now(india) - timedelta(days=2)
 
 # ---------------- ACEFONE FETCH ----------------
 
@@ -204,10 +205,15 @@ def run_pipeline():
 
     new_data = combined_df[combined_df["call_id"].isin(ace_df["call_id"])]
     
-    print("New records to insert:", len(new_data))
+    rows_count = len(new_data) 
+    print("New records to insert:", rows_count)   
+    if new_data.empty:
+        print("⚠️ No new data")
+        log_pipeline("ACEFONE", 0)
+        return
     
     load_to_bigquery(new_data)
-    log_pipeline("ACEFONE", new_rows)
+    log_pipeline("ACEFONE", rows_count)
     
 if __name__ == "__main__":
     run_pipeline()
