@@ -160,7 +160,13 @@ def fetch_acefone(last_time):
             print("⚠️ Max page limit reached")
             break
 
-    df = pd.DataFrame(rows)
+    expected_cols = [
+        "client_number","call_datetime","call_owner","call_duration",
+        "status","call_id","direction","service","reason",
+        "call_type","source","updated_at","updated_at_ampm"
+    ]
+    
+    df = pd.DataFrame(rows, columns=expected_cols)
 
     if not df.empty:
         df["call_datetime"] = pd.to_datetime(df["call_datetime"], utc=True, errors="coerce")
@@ -204,19 +210,23 @@ def run_pipeline():
 
     ace_df = fetch_acefone(last_time)
     bq_df = fetch_recent_bq_data(last_time)
-
+    
+    if ace_df.empty:
+    print("⚠️ No data fetched from API")
+    log_pipeline("ACEFONE", 0)
+    return
+    
     combined_df = pd.concat([bq_df, ace_df], ignore_index=True)
     combined_df = combined_df.drop_duplicates(subset=["call_id", "call_datetime"])
 
+    if "call_id" not in ace_df.columns:
+        log_pipeline("ACEFONE", 0)
+        return
+    
     new_data = combined_df[combined_df["call_id"].isin(ace_df["call_id"])]
 
     rows_count = len(new_data)
     print("New records to insert:", rows_count)
-
-    if new_data.empty:
-        print("⚠️ No new data")
-        log_pipeline("ACEFONE", 0)
-        return
 
     load_to_bigquery(new_data)
 
