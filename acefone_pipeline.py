@@ -212,9 +212,9 @@ def run_pipeline():
     bq_df = fetch_recent_bq_data(last_time)
     
     if ace_df.empty:
-    print("⚠️ No data fetched from API")
-    log_pipeline("ACEFONE", 0)
-    return
+        print("⚠️ No data fetched from API")
+        log_pipeline("ACEFONE", 0)
+        return
     
     combined_df = pd.concat([bq_df, ace_df], ignore_index=True)
     combined_df = combined_df.drop_duplicates(subset=["call_id", "call_datetime"])
