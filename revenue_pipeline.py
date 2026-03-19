@@ -12,7 +12,27 @@ DATASET = "crm_dashboard"
 TABLE = "revenue_sheet"
 
 table_id = f"{PROJECT_ID}.{DATASET}.{TABLE}"
+LOG_TABLE = f"{PROJECT_ID}.crm_scheduled_results.MASTER_QUERY_REFRESH"
 
+# LOG FUNCTION
+def log_pipeline(pipeline_name, rows):
+
+    log_data = [{
+        "run_date": datetime.now(india).date(),
+        "pipeline_name": pipeline_name,
+        "run_timestamp": datetime.utcnow(),
+        "rows_inserted": int(rows)
+    }]
+
+    df = pd.DataFrame(log_data)
+
+    job = client.load_table_from_dataframe(
+        df,
+        LOG_TABLE,
+        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
+    )
+
+    job.result()
 
 # FETCH GOOGLE SHEET
 SPREADSHEET_ID = "1fFdwIWzS_JOcDLQ8ZP0BlNUm__OTW2vT99JB9hDukJA"
@@ -174,4 +194,4 @@ job_config=job_config
 )
 
 job.result()
-
+log_pipeline("REVENUE", rows_count)
