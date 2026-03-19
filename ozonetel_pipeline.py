@@ -10,30 +10,38 @@ from google.cloud import bigquery
 PROJECT_ID = "studious-apex-488820-c3"
 DATASET = "crm_dashboard"
 TABLE = "ozonetel_calls"
-TEAM_TABLE = "team_list"
 
 TABLE_ID = f"{PROJECT_ID}.{DATASET}.{TABLE}"
-TEAM_TABLE_ID = f"{PROJECT_ID}.{DATASET}.{TEAM_TABLE}"
 
 API_URL = "https://in1-ccaas-api.ozonetel.com/ca_reports/fetchCDRDetails"
 API_KEY = os.getenv("OZONETEL_API_KEY")
 USERNAME = os.getenv("OZONETEL_USERNAME")
+TEAM_SHEET_URL = os.getenv("TEAM_SHEET_URL")
 
 client = bigquery.Client()
 india = pytz.timezone("Asia/Kolkata")
 
-# ================= GET TEAM LIST =================
+# ================= GET TEAM LIST (FROM SHEET) =================
 def get_team_map():
-    df = client.query(f"""
-        SELECT DISTINCT Caller_Name
-        FROM `{TEAM_TABLE_ID}`
-        WHERE Caller_Name IS NOT NULL
-    """).to_dataframe()
+    try:
+        df = pd.read_csv(TEAM_SHEET_URL)
 
-    df["clean"] = df["Caller_Name"].str.strip().str.lower()
+        # 🔥 IMPORTANT: column name is "Caller Name"
+        df = df[df["Caller Name"].notna()]
 
-    # mapping: lowercase → proper case
-    return dict(zip(df["clean"], df["Caller_Name"]))
+        df["clean"] = df["Caller Name"].astype(str).str.strip().str.lower()
+
+        # mapping: lowercase → proper case
+        team_map = dict(zip(df["clean"], df["Caller Name"]))
+
+        print(f"✅ Loaded {len(team_map)} agents from sheet")
+
+        return team_map
+
+    except Exception as e:
+        print("❌ Team sheet error:", e)
+        return {}
+
 # ================= GET RECENT BQ DATA =================
 def get_recent_bq_data(last_time):
     try:
@@ -53,6 +61,7 @@ def get_recent_bq_data(last_time):
     except Exception as e:
         print("BQ fetch error:", e)
         return pd.DataFrame()
+
 # ================= LAST END TIME =================
 def get_last_time():
     try:
@@ -68,6 +77,7 @@ def get_last_time():
 
         if last_time.tzinfo is None:
             last_time = pytz.utc.localize(last_time)
+
         return last_time.astimezone(india) - timedelta(minutes=30)
 
     except:
@@ -170,7 +180,7 @@ def run_pipeline():
     team_map = get_team_map()
     last_time = get_last_time()
 
-    # 🔥 STEP 1: GET EXISTING DATA FROM BQ (LAST 30 MIN)
+    # 🔥 Step 1: Get recent BQ data
     bq_df = get_recent_bq_data(last_time)
 
     start_date = last_time.date()
@@ -188,7 +198,6 @@ def run_pipeline():
         if not df.empty:
             all_data.append(df)
             print(f"✅ {len(df)} records")
-
         else:
             print("⚠️ No data")
 
@@ -200,8 +209,10 @@ def run_pipeline():
         return
 
     api_df = pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame()
+
     if not api_df.empty:
         api_df = api_df.drop_duplicates(subset=["CallID"])
+
     final_df = pd.concat([api_df, bq_df], ignore_index=True)
 
     print(f"📊 Before dedup: {len(final_df)}")
@@ -210,7 +221,9 @@ def run_pipeline():
 
     print(f"✅ After dedup: {len(final_df)}")
 
-    final_df = final_df[final_df["CallID"].isin(api_df["CallID"])]
+    # 🔥 Only push NEW records
+    if not bq_df.empty:
+        final_df = final_df[~final_df["CallID"].isin(bq_df["CallID"])]
 
     print(f"🚀 Final push records: {len(final_df)}")
 
