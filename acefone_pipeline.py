@@ -140,17 +140,21 @@ def load_to_bigquery(df):
 
     df = df.copy()
 
-    # Deduplicate by call_id
+    # Deduplicate
     df = df.drop_duplicates(subset=["call_id"])
 
-    # Ensure proper UTC timestamp
+    # Ensure timestamps
     df["call_datetime"] = pd.to_datetime(df["call_datetime"], utc=True, errors="coerce")
+    df["updated_at"] = pd.to_datetime(df["updated_at"], utc=True, errors="coerce")
+
     df = df[df["call_datetime"].notna()]
 
+    # Numeric
     df["call_duration"] = pd.to_numeric(df["call_duration"], errors="coerce").fillna(0).astype(int)
 
+    # Convert ONLY non-timestamp object columns
     for col in df.columns:
-        if df[col].dtype == "object":
+        if df[col].dtype == "object" and col not in ["updated_at", "call_datetime"]:
             df[col] = df[col].astype(str)
 
     job = client.load_table_from_dataframe(
