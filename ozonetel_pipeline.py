@@ -150,7 +150,7 @@ def run_pipeline():
             print(f"✅ {len(df)} records")
         else:
             print("⚠️ No data")
-        time.sleep(2)  # small delay
+        time.sleep(40)  # small delay
         current += timedelta(days=1)
 
     if not all_data and bq_df.empty:
