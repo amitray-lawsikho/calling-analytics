@@ -60,8 +60,8 @@ def get_recent_bq_data(last_time):
         df = client.query(query).to_dataframe()
         if not df.empty:
             return df
-    except Exception as e:
-        return pd.DataFrame()
+        except Exception as e:
+            return pd.DataFrame()
 
 # ================= LAST END TIME =================
 def get_last_time():
