@@ -30,6 +30,18 @@ def safe_duration(x):
     except:
         return 0
 
+# ---------------- RECENT BQ DATA ----------------
+def fetch_recent_bq_data(last_time):
+
+    query = f"""
+        SELECT *
+        FROM `{TABLE_ID}`
+        WHERE call_datetime >= TIMESTAMP('{last_time.strftime("%Y-%m-%d %H:%M:%S")}')
+        AND source = 'Acefone'
+    """
+
+    return client.query(query).to_dataframe()
+
 # ---------------- INCREMENTAL ----------------
 
 def get_last_call_time():
@@ -111,7 +123,13 @@ def fetch_acefone(last_time):
 
         page += 1
 
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+
+    if not df.empty:
+        df["call_datetime"] = pd.to_datetime(df["call_datetime"], utc=True, errors="coerce")
+        df = df[df["call_datetime"].notna()]
+    
+    return df
 
 # ---------------- LOAD ----------------
 
@@ -149,9 +167,23 @@ def run_pipeline():
 
     last_time = get_last_call_time()
 
+    print("⏱ Fetching from:", last_time)
+
+    # 🔹 Step 1: Fetch API
     ace_df = fetch_acefone(last_time)
 
-    load_to_bigquery(ace_df)
+    # 🔹 Step 2: Fetch recent BigQuery data
+    bq_df = fetch_recent_bq_data(last_time)
+
+    # 🔹 Step 3: Combine both
+    combined_df = pd.concat([bq_df, ace_df], ignore_index=True)
+    combined_df = combined_df.drop_duplicates(subset=["call_id"])
+
+    new_data = combined_df[combined_df["call_id"].isin(ace_df["call_id"])]
+    
+    print("New records to insert:", len(new_data))
+    
+    load_to_bigquery(new_data)
 
 if __name__ == "__main__":
     run_pipeline()
