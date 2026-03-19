@@ -108,20 +108,17 @@ def fetch_acefone(last_time):
         )
 
         if res.status_code != 200:
-            print("❌ API error:", res.status_code)
             break
 
         data = res.json().get("results", [])
 
         if not data:
-            print("✅ No more data")
             break
 
         current_ids = {str(call.get("call_id")) for call in data}
 
-        # 🔥 STOP duplicate page loop
+        # STOP duplicate page loop
         if current_ids.issubset(seen_ids):
-            print("⚠️ Duplicate page detected, stopping")
             break
 
         seen_ids.update(current_ids)
@@ -148,16 +145,13 @@ def fetch_acefone(last_time):
                 "updated_at_ampm": datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
             })
 
-        print(f"📄 Page {page}: {len(data)} records")
 
         if len(data) < 1000:
-            print("✅ Last page reached")
             break
 
         page += 1
 
         if page > 50:
-            print("⚠️ Max page limit reached")
             break
 
     expected_cols = [
@@ -182,7 +176,7 @@ def load_to_bigquery(df):
 
     df = df.copy()
 
-    # 🔥 KEEP ONLY TRUE DUPES FIXED
+    # KEEP ONLY TRUE DUPES
     df = df.drop_duplicates(subset=["call_id", "call_datetime"])
 
     df["call_datetime"] = pd.to_datetime(df["call_datetime"], utc=True, errors="coerce")
@@ -206,13 +200,11 @@ def load_to_bigquery(df):
 def run_pipeline():
 
     last_time = get_last_call_time()
-    print("⏱ Fetching from:", last_time)
 
     ace_df = fetch_acefone(last_time)
     bq_df = fetch_recent_bq_data(last_time)
     
     if ace_df.empty:
-        print("⚠️ No data fetched from API")
         log_pipeline("ACEFONE", 0)
         return
     
@@ -226,12 +218,10 @@ def run_pipeline():
     new_data = combined_df[combined_df["call_id"].isin(ace_df["call_id"])]
 
     rows_count = len(new_data)
-    print("New records to insert:", rows_count)
 
     load_to_bigquery(new_data)
 
     log_pipeline("ACEFONE", rows_count)
-    print("✅ Acefone pipeline completed")
 
 if __name__ == "__main__":
     run_pipeline()
