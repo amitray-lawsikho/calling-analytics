@@ -17,10 +17,12 @@ LOG_TABLE = f"{PROJECT_ID}.crm_scheduled_results.MASTER_QUERY_REFRESH"
 # LOG FUNCTION
 def log_pipeline(pipeline_name, rows):
 
+    ist_now = datetime.now(india_tz)
+
     log_data = [{
-        "run_date": datetime.now(india).date(),
+        "run_date": ist_now.date(),
         "pipeline_name": pipeline_name,
-        "run_timestamp": datetime.utcnow(),
+        "run_timestamp": ist_now.strftime("%d/%m/%Y %I:%M %p"),
         "rows_inserted": int(rows)
     }]
 
@@ -163,7 +165,10 @@ df["updated_at"] = pd.Timestamp(now)
 df["updated_at_ampm"] = now.strftime("%d/%m/%Y %I:%M %p")
 
 df = df[df["Date"].notna()]
-
+if df.empty:
+    print("⚠️ No revenue data after filtering")
+    log_pipeline("REVENUE", 0)
+    exit()
 # LOAD TO BIGQUERY
 job_config = bigquery.LoadJobConfig(
 
@@ -194,4 +199,5 @@ job_config=job_config
 )
 
 job.result()
+rows_count = len(df) 
 log_pipeline("REVENUE", rows_count)
