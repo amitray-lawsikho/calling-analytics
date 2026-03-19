@@ -28,7 +28,7 @@ def log_pipeline(pipeline_name, rows):
     }]
 
     df = pd.DataFrame(log_data)
-
+    
     job = client.load_table_from_dataframe(
         df,
         LOG_TABLE,
@@ -146,7 +146,10 @@ df["Phone"] = (
 )
 
 df.drop_duplicates(subset=["ProspectID"], inplace=True)
-
+if df.empty:
+    print("⚠️ No data fetched from LSQ")
+    log_pipeline("LSQ", 0)
+    exit()
 # ADD DATE FIELD
 df["Modified Date"] = df["ModifiedOn"].dt.date
 
