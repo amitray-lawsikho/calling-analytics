@@ -39,15 +39,19 @@ jobs:
       with:
         credentials_json: '${{ secrets.BQ_CREDENTIALS }}'
 
-    # ---------------- CALLING PIPELINE (ACEFONE + OZONETEL) ----------------
+    # ---------------- OZONETEL PIPELINE ----------------
+    - name: Run Ozonetel Pipeline
+      run: python ozonetel_pipeline.py
+      env:
+        OZONETEL_API_KEY: ${{ secrets.OZONETEL_API_KEY }}
+        OZONETEL_USERNAME: ${{ secrets.OZONETEL_USERNAME }}
+
+    # ---------------- ACEFONE PIPELINE ---------------
     - name: Run Calling Pipeline (Unified)
       run: python acefone_pipeline.py
       env:
         ACEFONE_API_KEY: ${{ secrets.ACEFONE_API_KEY }}
         ACEFONE_ACCOUNT_ID: ${{ secrets.ACEFONE_ACCOUNT_ID }}
-        OZONETEL_API_KEY: ${{ secrets.OZONETEL_API_KEY }}
-        OZONETEL_USERNAME: ${{ secrets.OZONETEL_USERNAME }}
-        TEAM_SHEET_URL: ${{ secrets.TEAM_SHEET_URL }}
 
     # ---------------- LSQ PIPELINE ----------------
     - name: Run LSQ Pipeline
