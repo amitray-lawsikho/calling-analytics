@@ -185,7 +185,6 @@ def run_pipeline():
     )
     job.result()
     log_pipeline("OZONETEL", rows_count)
-    print(f"✅ Ozonetel data pushed ({rows_count} rows)")
 
 if __name__ == "__main__":
     run_pipeline()
