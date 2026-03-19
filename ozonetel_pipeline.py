@@ -34,7 +34,25 @@ def get_team_map():
 
     # mapping: lowercase → proper case
     return dict(zip(df["clean"], df["Caller_Name"]))
+# ================= GET RECENT BQ DATA =================
+def get_recent_bq_data(last_time):
+    try:
+        query = f"""
+            SELECT *
+            FROM `{TABLE_ID}`
+            WHERE EndTime >= TIMESTAMP('{last_time.strftime('%Y-%m-%d %H:%M:%S')}')
+        """
 
+        df = client.query(query).to_dataframe()
+
+        if not df.empty:
+            print(f"🟢 Pulled {len(df)} records from BQ for dedup")
+
+        return df
+
+    except Exception as e:
+        print("BQ fetch error:", e)
+        return pd.DataFrame()
 # ================= LAST END TIME =================
 def get_last_time():
     try:
@@ -150,6 +168,9 @@ def run_pipeline():
     team_map = get_team_map()
     last_time = get_last_time()
 
+    # 🔥 STEP 1: GET EXISTING DATA FROM BQ (LAST 30 MIN)
+    bq_df = get_recent_bq_data(last_time)
+
     start_date = last_time.date()
     end_date = datetime.now(india).date()
 
@@ -169,19 +190,32 @@ def run_pipeline():
         else:
             print("⚠️ No data")
 
-        time.sleep(35)  # rate limit
+        time.sleep(35)
         current += timedelta(days=1)
 
-    if not all_data:
+    if not all_data and bq_df.empty:
         print("❌ No data")
         return
 
-    final_df = pd.concat(all_data, ignore_index=True)
+    api_df = pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame()
 
-    # Deduplicate
-    final_df = final_df.drop_duplicates(subset=["CallID"])
+    final_df = pd.concat([api_df, bq_df], ignore_index=True)
 
-    # Load
+    print(f"📊 Before dedup: {len(final_df)}")
+
+    final_df = final_df.drop_duplicates(subset=["CallID"], keep="last")
+
+    print(f"✅ After dedup: {len(final_df)}")
+
+    if not bq_df.empty:
+        final_df = final_df[~final_df["CallID"].isin(bq_df["CallID"])]
+
+    print(f"🚀 Final push records: {len(final_df)}")
+
+    if final_df.empty:
+        print("⚠️ Nothing new to push")
+        return
+
     job = client.load_table_from_dataframe(
         final_df,
         TABLE_ID,
@@ -189,6 +223,7 @@ def run_pipeline():
     )
 
     job.result()
+
     print("✅ Ozonetel data pushed")
 
 if __name__ == "__main__":
