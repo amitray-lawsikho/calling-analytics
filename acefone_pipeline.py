@@ -10,7 +10,7 @@ from google.cloud import bigquery
 PROJECT_ID = "studious-apex-488820-c3"
 DATASET = "crm_dashboard"
 TABLE = "acefone_calls"
-
+LOG_TABLE = f"{PROJECT_ID}.crm_scheduled_results.MASTER_QUERY_REFRESH"
 TABLE_ID = f"{PROJECT_ID}.{DATASET}.{TABLE}"
 
 ACE_API_KEY = os.getenv("ACEFONE_API_KEY")
@@ -18,7 +18,25 @@ ACCOUNT_ID = os.getenv("ACEFONE_ACCOUNT_ID")
 
 india = pytz.timezone("Asia/Kolkata")
 client = bigquery.Client()
+# ---------------- LOG FUNCTION ----------------
+def log_pipeline(pipeline_name, rows):
 
+    log_data = [{
+        "run_date": datetime.now(india).date(),
+        "pipeline_name": pipeline_name,
+        "run_timestamp": datetime.utcnow(),
+        "rows_inserted": int(rows)
+    }]
+
+    df = pd.DataFrame(log_data)
+
+    job = client.load_table_from_dataframe(
+        df,
+        LOG_TABLE,
+        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
+    )
+
+    job.result()
 # ---------------- HELPERS ----------------
 
 def safe_duration(x):
@@ -187,6 +205,7 @@ def run_pipeline():
     print("New records to insert:", len(new_data))
     
     load_to_bigquery(new_data)
-
+    log_pipeline("ACEFONE", new_rows)
+    
 if __name__ == "__main__":
     run_pipeline()
