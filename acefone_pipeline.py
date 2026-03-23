@@ -46,12 +46,9 @@ def get_last_call_time():
         if pd.isna(last_time_utc):
             return datetime.now(india) - timedelta(days=2)
 
-        # Ensure it's localized as UTC first if it's naive
         if last_time_utc.tzinfo is None:
             last_time_utc = pytz.utc.localize(last_time_utc)
 
-        # Convert to India Time for the API 'from_date' parameter
-        # We subtract 30 mins overlap to catch any late-syncing calls
         return last_time_utc.astimezone(india) - timedelta(minutes=30)
 
     except Exception as e:
@@ -95,21 +92,35 @@ def fetch_acefone(last_time_ist):
         seen_ids.update(current_ids)
 
         for call in data:
-            # 1. Parse API string (Acefone sends IST)
             dt_raw = pd.to_datetime(call.get("end_stamp"), errors="coerce")
             if pd.isna(dt_raw):
                 continue
 
-            # 2. Localize as India Time (Telling Python: 'This clock is already IST')
             dt_ist = india.localize(dt_raw)
 
-            # 3. Clean Owner Name
-            raw_owner = str(call.get("agent_name", "")).strip()
-            clean_owner = raw_owner.replace("-Extension", "") if raw_owner.endswith("-Extension") else raw_owner
+            # --- ROBUST AGENT LOGIC (FIXED) ---
+            agent = None
+            if call.get("agent_name"):
+                agent = call["agent_name"]
+            elif call.get("missed_agents"):
+                # Get first agent from missed agents list
+                missed = call.get("missed_agents")
+                agent = missed[0].get("name") if missed and isinstance(missed, list) else None
+            else:
+                # Fallback: search call_flow for the Agent assigned
+                for flow in call.get("call_flow", []):
+                    if flow.get("type") == "Agent":
+                        agent = flow.get("name")
+                        break
+
+            # Clean Owner Name (Remove extension suffix)
+            clean_owner = str(agent or "").strip()
+            if clean_owner.endswith("-Extension"):
+                clean_owner = clean_owner.replace("-Extension", "")
 
             rows.append({
                 "client_number": str(call.get("client_number",""))[-10:],
-                "call_datetime": dt_ist.astimezone(pytz.utc), # Convert IST to UTC for BQ storage
+                "call_datetime": dt_ist.astimezone(pytz.utc), 
                 "call_owner": clean_owner,
                 "call_duration": safe_duration(call.get("call_duration")),
                 "status": call.get("status"),
@@ -121,7 +132,7 @@ def fetch_acefone(last_time_ist):
                 "source": "Acefone",
                 "updated_at": batch_now_utc,
                 "updated_at_ampm": batch_now_ist.strftime("%d/%m/%Y %I:%M %p"),
-                "Call Date": dt_ist.date() # Pure IST date (no UTC shifting)
+                "Call Date": dt_ist.date() 
             })
 
         if len(data) < 1000: break
@@ -135,16 +146,13 @@ def fetch_acefone(last_time_ist):
 def load_to_bigquery(df):
     if df.empty: return
     
-    # Sort and deduplicate to keep latest version of a call
     df = df.sort_values("call_datetime", ascending=False)
     df = df.drop_duplicates(subset=["call_id"], keep="first")
 
-    # Standardize types for BigQuery
     df["call_datetime"] = pd.to_datetime(df["call_datetime"], utc=True)
     df["updated_at"] = pd.to_datetime(df["updated_at"], utc=True)
     df["call_duration"] = pd.to_numeric(df["call_duration"], errors="coerce").fillna(0).astype(int)
 
-    # Stringify objects for safety
     for col in df.columns:
         if df[col].dtype == "object" and col not in ["updated_at", "call_datetime", "Call Date"]:
             df[col] = df[col].astype(str)
@@ -165,25 +173,19 @@ def log_pipeline(pipeline_name, rows):
 # ---------------- MAIN ----------------
 
 def run_pipeline():
-    # 1. Get the IST time to query the API
     last_time_ist = get_last_call_time()
-
-    # 2. Fetch new calls from API
     ace_df = fetch_acefone(last_time_ist)
     
     if ace_df.empty:
         log_pipeline("ACEFONE", 0)
         return
 
-    # 3. Fetch recent data from BQ to check for overlapping duplicates
     query_bq = f"SELECT * FROM `{TABLE_ID}` WHERE call_datetime >= TIMESTAMP('{last_time_ist.astimezone(pytz.utc).strftime('%Y-%m-%d %H:%M:%S')}') AND source = 'Acefone'"
     bq_df = client.query(query_bq).to_dataframe()
     
-    # 4. Combine and isolate only truly new records
     combined_df = pd.concat([bq_df, ace_df], ignore_index=True)
     combined_df = combined_df.sort_values("call_datetime", ascending=False).drop_duplicates(subset=["call_id"], keep="first")
     
-    # We only want to upload records that are in our fresh API fetch
     new_records = combined_df[combined_df["call_id"].isin(ace_df["call_id"])]
 
     load_to_bigquery(new_records)
