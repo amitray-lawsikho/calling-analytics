@@ -173,23 +173,42 @@ def log_pipeline(pipeline_name, rows):
 # ---------------- MAIN ----------------
 
 def run_pipeline():
+    # 1. Get the IST time to query the API
     last_time_ist = get_last_call_time()
+
+    # 2. Fetch new calls from API (3-step owner check is inside here)
     ace_df = fetch_acefone(last_time_ist)
     
     if ace_df.empty:
         log_pipeline("ACEFONE", 0)
         return
 
-    query_bq = f"SELECT * FROM `{TABLE_ID}` WHERE call_datetime >= TIMESTAMP('{last_time_ist.astimezone(pytz.utc).strftime('%Y-%m-%d %H:%M:%S')}') AND source = 'Acefone'"
-    bq_df = client.query(query_bq).to_dataframe()
-    
-    combined_df = pd.concat([bq_df, ace_df], ignore_index=True)
-    combined_df = combined_df.sort_values("call_datetime", ascending=False).drop_duplicates(subset=["call_id"], keep="first")
-    
-    new_records = combined_df[combined_df["call_id"].isin(ace_df["call_id"])]
+    # --- MATCH YOUR DATA DUMP FILTERS ---
+    # Only keep Outbound or Answered Inbound to keep dashboard counts accurate
+    ace_df = ace_df[
+        (ace_df["direction"] == "outbound") | 
+        ((ace_df["direction"] == "inbound") & (ace_df["status"].str.lower() == "answered"))
+    ]
 
-    load_to_bigquery(new_records)
-    log_pipeline("ACEFONE", len(new_records))
+    if ace_df.empty:
+        log_pipeline("ACEFONE", 0)
+        return
+
+    # 3. Get the list of Call IDs that ALREADY exist in BigQuery for this period
+    query_bq = f"SELECT call_id FROM `{TABLE_ID}` WHERE call_datetime >= TIMESTAMP('{last_time_ist.astimezone(pytz.utc).strftime('%Y-%m-%d %H:%M:%S')}') AND source = 'Acefone'"
+    bq_ids = client.query(query_bq).to_dataframe()["call_id"].unique().tolist()
+    
+    # 4. FULL-PROOF DEDUPLICATION:
+    # Only keep records from the API where the call_id is NOT in the BQ list
+    new_records = ace_df[~ace_df["call_id"].isin(bq_ids)]
+
+    # 5. Load ONLY the truly new records
+    if not new_records.empty:
+        load_to_bigquery(new_records)
+        log_pipeline("ACEFONE", len(new_records))
+    else:
+        print("No new unique records to add.")
+        log_pipeline("ACEFONE", 0)
 
 if __name__ == "__main__":
     run_pipeline()
