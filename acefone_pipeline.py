@@ -82,7 +82,6 @@ def fetch_recent_bq_data(last_time):
 
 # ---------------- FETCH ACEFONE ----------------
 def fetch_acefone(last_time):
-
     headers = {
         "Authorization": f"Bearer {ACE_API_KEY}",
         "accountid": ACCOUNT_ID
@@ -91,12 +90,15 @@ def fetch_acefone(last_time):
     rows = []
     page = 1
     seen_ids = set()
+    
+    # Capture batch times
+    batch_now_utc = datetime.utcnow().replace(tzinfo=pytz.utc)
+    batch_now_ist = datetime.now(india)
 
     while True:
-
         params = {
             "from_date": last_time.strftime("%Y-%m-%d %H:%M:%S"),
-            "to_date": datetime.now(india).strftime("%Y-%m-%d %H:%M:%S"),
+            "to_date": batch_now_ist.strftime("%Y-%m-%d %H:%M:%S"),
             "page": page,
             "limit": 1000
         }
@@ -111,28 +113,29 @@ def fetch_acefone(last_time):
             break
 
         data = res.json().get("results", [])
-
         if not data:
             break
 
         current_ids = {str(call.get("call_id")) for call in data}
-
-        # STOP duplicate page loop
         if current_ids.issubset(seen_ids):
             break
 
         seen_ids.update(current_ids)
 
         for call in data:
-            dt = pd.to_datetime(call.get("end_stamp"), utc=True, errors="coerce")
-
-            if pd.isna(dt):
+            # Parse the UTC timestamp from API
+            dt_utc = pd.to_datetime(call.get("end_stamp"), utc=True, errors="coerce")
+            if pd.isna(dt_utc):
                 continue
+
+            # Clean Owner Name
+            raw_owner = str(call.get("agent_name", "")).strip()
+            clean_owner = raw_owner.replace("-Extension", "") if raw_owner.endswith("-Extension") else raw_owner
 
             rows.append({
                 "client_number": str(call.get("client_number",""))[-10:],
-                "call_datetime": dt,
-                "call_owner": str(call.get("agent_name","")).strip(),
+                "call_datetime": dt_utc,
+                "call_owner": clean_owner,
                 "call_duration": safe_duration(call.get("call_duration")),
                 "status": call.get("status"),
                 "call_id": "ACE_" + str(call.get("call_id")),
@@ -141,53 +144,45 @@ def fetch_acefone(last_time):
                 "reason": call.get("reason"),
                 "call_type": (call.get("dialer_call_details") or {}).get("call_type"),
                 "source": "Acefone",
-                "updated_at": datetime.utcnow(),
-                "updated_at_ampm": datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
+                "updated_at": batch_now_utc,
+                "updated_at_ampm": batch_now_ist.strftime("%d/%m/%Y %I:%M %p")
             })
-
 
         if len(data) < 1000:
             break
-
         page += 1
-
         if page > 50:
             break
 
-    expected_cols = [
-        "client_number","call_datetime","call_owner","call_duration",
-        "status","call_id","direction","service","reason",
-        "call_type","source","updated_at","updated_at_ampm"
-    ]
-    
-    df = pd.DataFrame(rows, columns=expected_cols)
-
-    if not df.empty:
-        df["call_datetime"] = pd.to_datetime(df["call_datetime"], utc=True, errors="coerce")
-        df = df[df["call_datetime"].notna()]
-
+    df = pd.DataFrame(rows)
     return df
 
 # ---------------- LOAD ----------------
 def load_to_bigquery(df):
-
     if df.empty:
         return
 
     df = df.copy()
 
-    # KEEP ONLY TRUE DUPES
-    df = df.drop_duplicates(subset=["call_id", "call_datetime"])
+    # Deduplicate: Keep latest call info per call_id
+    df = df.sort_values("call_datetime", ascending=False)
+    df = df.drop_duplicates(subset=["call_id"], keep="first")
 
-    df["call_datetime"] = pd.to_datetime(df["call_datetime"], utc=True, errors="coerce")
-    df["updated_at"] = pd.to_datetime(df["updated_at"], utc=True, errors="coerce")
-
-    df = df[df["call_datetime"].notna()]
-
+    # --- THE TIMEZONE FIX ---
+    # 1. Ensure call_datetime is datetime objects
+    df["call_datetime"] = pd.to_datetime(df["call_datetime"], utc=True)
+    
+    # 2. Localize to IST then extract the date
+    # This ensures a call at 1:00 AM IST (which is previous day UTC) shows the correct IST date
+    df["Call Date"] = df["call_datetime"].dt.tz_convert("Asia/Kolkata").dt.date
+    
+    # Standardize other fields
+    df["updated_at"] = pd.to_datetime(df["updated_at"], utc=True)
     df["call_duration"] = pd.to_numeric(df["call_duration"], errors="coerce").fillna(0).astype(int)
 
+    # Cast objects to string for BQ compatibility
     for col in df.columns:
-        if df[col].dtype == "object" and col not in ["updated_at", "call_datetime"]:
+        if df[col].dtype == "object" and col not in ["updated_at", "call_datetime", "Call Date"]:
             df[col] = df[col].astype(str)
 
     client.load_table_from_dataframe(
@@ -198,7 +193,6 @@ def load_to_bigquery(df):
 
 # ---------------- MAIN ----------------
 def run_pipeline():
-
     last_time = get_last_call_time()
 
     ace_df = fetch_acefone(last_time)
@@ -208,19 +202,18 @@ def run_pipeline():
         log_pipeline("ACEFONE", 0)
         return
     
+    # Combine fresh API data with recent BQ data to find updates/duplicates
     combined_df = pd.concat([bq_df, ace_df], ignore_index=True)
-    combined_df = combined_df.drop_duplicates(subset=["call_id", "call_datetime"])
-
-    if "call_id" not in ace_df.columns:
-        log_pipeline("ACEFONE", 0)
-        return
     
+    # Remove duplicates from the combined set
+    combined_df = combined_df.sort_values("call_datetime", ascending=False)
+    combined_df = combined_df.drop_duplicates(subset=["call_id"], keep="first")
+
+    # Only load the records that were actually present in the new Acefone fetch
     new_data = combined_df[combined_df["call_id"].isin(ace_df["call_id"])]
 
     rows_count = len(new_data)
-
     load_to_bigquery(new_data)
-
     log_pipeline("ACEFONE", rows_count)
 
 if __name__ == "__main__":
