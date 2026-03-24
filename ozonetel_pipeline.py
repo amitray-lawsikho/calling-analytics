@@ -10,181 +10,122 @@ from google.cloud import bigquery
 PROJECT_ID = "studious-apex-488820-c3"
 DATASET = "crm_dashboard"
 TABLE = "ozonetel_calls"
-LOG_TABLE = f"{PROJECT_ID}.crm_scheduled_results.MASTER_QUERY_REFRESH"
 TABLE_ID = f"{PROJECT_ID}.{DATASET}.{TABLE}"
 
 API_URL = "https://in1-ccaas-api.ozonetel.com/ca_reports/fetchCDRDetails"
-API_KEY = os.getenv("OZONETEL_API_KEY")
+API_KEY = os.getenv("OZONETEL_API_KEY") 
 USERNAME = os.getenv("OZONETEL_USERNAME")
 TEAM_SHEET_URL = os.getenv("TEAM_SHEET_URL")
 
 client = bigquery.Client()
 india = pytz.timezone("Asia/Kolkata")
 
-# ================= LOG FUNCTION =================
-def log_pipeline(pipeline_name, rows):
-    ist_now = datetime.now(india)
-    log_data = [{
-        "run_date": ist_now.date(),
-        "pipeline_name": pipeline_name,
-        "run_timestamp": ist_now.strftime("%d/%m/%Y %I:%M %p"),
-        "rows_inserted": int(rows)
-    }]
-    df = pd.DataFrame(log_data)
-    job = client.load_table_from_dataframe(
-        df,
-        LOG_TABLE,
-        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
-    )
-    job.result()
-
-# ================= GET TEAM LIST =================
-def get_team_map():
-    try:
-        df = pd.read_csv(TEAM_SHEET_URL)
-        df = df[df["Caller Name"].notna()]
-        df["clean"] = df["Caller Name"].astype(str).str.strip().str.lower()
-        team_map = dict(zip(df["clean"], df["Caller Name"]))
-        return team_map
-    except Exception as e:
-        return {}
-
-# ================= GET RECENT BQ DATA =================
-def get_recent_bq_data(last_time):
-    try:
-        query = f"""
-            SELECT *
-            FROM `{TABLE_ID}`
-            WHERE EndTime >= TIMESTAMP('{last_time.strftime('%Y-%m-%d %H:%M:%S')}')
-        """
-        df = client.query(query).to_dataframe()
-        if not df.empty:
-            return df
-        return pd.DataFrame()
-    except Exception as e:
-        return pd.DataFrame()
-
-# ================= LAST END TIME =================
-def get_last_time():
-    try:
-        df = client.query(f"SELECT MAX(EndTime) AS last_time FROM `{TABLE_ID}`").to_dataframe()
-        last_time = df.iloc[0]["last_time"]
-        if pd.isna(last_time):
-            return datetime.now(india) - timedelta(days=2)
-        if last_time.tzinfo is None:
-            last_time = pytz.utc.localize(last_time)
-        return last_time.astimezone(india) - timedelta(minutes=30)
-    except:
-        return datetime.now(india) - timedelta(days=2)
-
 # ================= HELPERS =================
-def time_to_seconds(t):
+def get_last_date_from_bq():
+    """Finds the most recent date in BQ. If empty, looks back 7 days."""
     try:
-        h, m, s = map(int, str(t).split(":"))
-        return h*3600 + m*60 + s
+        query = f"SELECT MAX(CallDate) as last_date FROM `{TABLE_ID}`"
+        df = client.query(query).to_dataframe()
+        last_date = df.iloc[0]['last_date']
+        if pd.isna(last_date):
+            return datetime.now(india).date() - timedelta(days=7)
+        return last_date
     except:
-        return 0
+        return datetime.now(india).date() - timedelta(days=2)
 
-# ================= FETCH DAY DATA =================
-def fetch_day(day, team_map):
-    day_from = day.strftime("%Y-%m-%d 00:00:00")
-    day_to   = day.strftime("%Y-%m-%d 23:59:59")
-    payload = {"fromDate": day_from, "toDate": day_to, "userName": USERNAME}
+def fetch_and_clean(target_date, team_map):
+    """Fetches a single day from Ozonetel and formats it for BQ."""
+    day_str = target_date.strftime("%Y-%m-%d")
+    payload = {"fromDate": f"{day_str} 00:00:00", "toDate": f"{day_str} 23:59:59", "userName": USERNAME}
     headers = {"Content-Type": "application/json", "apiKey": API_KEY}
+    
+    try:
+        res = requests.get(API_URL, headers=headers, json=payload, timeout=60)
+        details = res.json().get("details", [])
+        if not details: return pd.DataFrame()
+        
+        df = pd.DataFrame(details)
+        # Agent Map logic
+        df["clean"] = df["AgentName"].astype(str).str.strip().str.lower()
+        df = df[df["clean"].isin(team_map.keys())].copy()
+        df["AgentName"] = df["clean"].map(team_map)
+        
+        # Standardize columns to match your ozonetel_calls table schema
+        df["CallDate"] = pd.to_datetime(day_str).date()
+        df["duration_sec"] = df["Duration"].apply(lambda x: sum(int(a) * 60**i for i, a in enumerate(reversed(str(x).split(":")))) if ":" in str(x) else 0)
+        df["talktime_sec"] = df["TalkTime"].apply(lambda x: sum(int(a) * 60**i for i, a in enumerate(reversed(str(x).split(":")))) if ":" in str(x) else 0)
+        
+        for col in ["StartTime", "EndTime"]:
+            df[col] = pd.to_datetime(day_str + " " + df[col].astype(str), errors="coerce")
+            df[col] = df[col].dt.tz_localize(india, ambiguous='infer').dt.tz_convert("UTC")
 
-    for attempt in range(5):
-        res = requests.get(API_URL, headers=headers, json=payload)
-        data = res.json()
-        details = data.get("details", [])
-        if details:
-            df = pd.DataFrame(details)
-
-            # -------- AGENT CLEANING --------
-            df["AgentName"] = df["AgentName"].astype(str).str.strip()
-            df["clean"] = df["AgentName"].str.lower()
-            df = df[df["clean"].isin(team_map.keys())]
-            df["AgentName"] = df["clean"].map(team_map)
-
-            # -------- TIME --------
-            df["duration_sec"] = df["Duration"].apply(time_to_seconds)
-            df["talktime_sec"] = df["TalkTime"].apply(time_to_seconds)
-
-            # -------- TIMESTAMP FIX --------
-            df["StartTime"] = pd.to_datetime(day.strftime("%Y-%m-%d") + " " + df["StartTime"].astype(str), errors="coerce")
-            df["EndTime"]   = pd.to_datetime(day.strftime("%Y-%m-%d") + " " + df["EndTime"].astype(str), errors="coerce")
-            df["StartTime"] = df["StartTime"].dt.tz_localize(india).dt.tz_convert("UTC")
-            df["EndTime"]   = df["EndTime"].dt.tz_localize(india).dt.tz_convert("UTC")
-
-            # -------- FINAL --------
-            df["CallDate"] = day.date()
-            df["CallID"] = df["CallID"].astype(str)
-            df["phone_number"] = df["E164"].astype(str).str[-10:]
-            df["Source"] = "Ozonetel"
-            df["updated_at_ampm"] = datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
-
-            skill_col = "Skill" if "Skill" in df.columns else "skillName"
-            status_col = "Status" if "Status" in df.columns else "DialStatus"
-            df = df.rename(columns={status_col:"Status", skill_col:"Skill", "CampaignName":"campaignName"})
-
-            return df[
-                ["CallDate","CallID","AgentName","Status","Disposition","StartTime","EndTime",
-                 "duration_sec","talktime_sec","Skill","Type","campaignName","CallFlow",
-                 "phone_number","Source","updated_at_ampm"]
-            ]
-
-        # delay if no data
-        time.sleep(40)
-
-    return pd.DataFrame()
+        df["phone_number"] = df["E164"].astype(str).str[-10:]
+        df["Source"] = "Ozonetel"
+        df["updated_at_ampm"] = datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
+        
+        # Rename API fields to match BQ Schema
+        skill_col = "Skill" if "Skill" in df.columns else "skillName"
+        status_col = "Status" if "Status" in df.columns else "DialStatus"
+        df = df.rename(columns={status_col: "Status", skill_col: "Skill", "CampaignName": "campaignName"})
+        
+        return df[["CallDate","CallID","AgentName","Status","Disposition","StartTime","EndTime",
+                   "duration_sec","talktime_sec","Skill","Type","campaignName","CallFlow",
+                   "phone_number","Source","updated_at_ampm"]]
+    except:
+        return pd.DataFrame()
 
 # ================= MAIN PIPELINE =================
 def run_pipeline():
-    team_map = get_team_map()
-    last_time = get_last_time()
-    bq_df = get_recent_bq_data(last_time)
+    # 1. Determine the gap (Dynamic Start Date)
+    start_date = get_last_date_from_bq()
+    today = datetime.now(india).date()
+    
+    # Existing team map function
+    from_team_sheet = pd.read_csv(TEAM_SHEET_URL)
+    team_map = dict(zip(from_team_sheet.iloc[:, 2].str.strip().str.lower(), from_team_sheet.iloc[:, 2].str.strip()))
 
-    start_date = last_time.date()
-    end_date = datetime.now(india).date()
-    all_data = []
-    current = start_date
-
-    while current <= end_date:
-        df = fetch_day(datetime.combine(current, datetime.min.time()), team_map)
-        if not df.empty:
-            all_data.append(df)
-        else:
-            time.sleep(40)  # ✅ properly indented
-        current += timedelta(days=1)
-
-    if not all_data and bq_df.empty:
-        log_pipeline("OZONETEL", 0)
+    # 2. Fetch all data for the gap period from API
+    api_results = []
+    curr = start_date
+    while curr <= today:
+        api_results.append(fetch_and_clean(curr, team_map))
+        curr += timedelta(days=1)
+        time.sleep(1)
+    
+    api_df = pd.concat(api_results, ignore_index=True) if api_results else pd.DataFrame()
+    if api_df.empty:
+        print("No data found in API for the specified range.")
         return
 
-    api_df = pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame()
+    # 3. Fetch existing data from BQ for the same window to compare
+    query = f"SELECT CallID, StartTime, EndTime FROM `{TABLE_ID}` WHERE CallDate >= '{start_date}'"
+    existing_bq = client.query(query).to_dataframe()
+    
+    # Standardize types for comparison
+    if not existing_bq.empty:
+        existing_bq['StartTime'] = pd.to_datetime(existing_bq['StartTime'], utc=True)
+        existing_bq['EndTime'] = pd.to_datetime(existing_bq['EndTime'], utc=True)
 
-    # ✅ Deduplicate by CallID + StartTime + EndTime
-    if not api_df.empty:
-        api_df = api_df.drop_duplicates(subset=["CallID", "StartTime", "EndTime"], keep="last")
-
-    # Combine with BQ and only push NEW rows
-    if not bq_df.empty:
-        final_df = api_df.merge(bq_df[["CallID","StartTime","EndTime"]], on=["CallID","StartTime","EndTime"], how="left", indicator=True)
-        final_df = final_df[final_df["_merge"]=="left_only"].drop(columns=["_merge"])
+    # 4. Logical Deduplication (Pure Pandas)
+    # This identifies rows in api_df that DO NOT exist in existing_bq
+    if not existing_bq.empty:
+        merged = api_df.merge(
+            existing_bq, 
+            on=["CallID", "StartTime", "EndTime"], 
+            how="left", 
+            indicator=True
+        )
+        final_to_push = merged[merged["_merge"] == "left_only"].drop(columns=["_merge"])
     else:
-        final_df = api_df
+        final_to_push = api_df
 
-    rows_count = len(final_df)
-    if final_df.empty:
-        log_pipeline("OZONETEL", 0)
-        return
-
-    job = client.load_table_from_dataframe(
-        final_df,
-        TABLE_ID,
-        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
-    )
-    job.result()
-    log_pipeline("OZONETEL", rows_count)
+    # 5. Append Only New Rows
+    if not final_to_push.empty:
+        print(f"Pushing {len(final_to_push)} new records to BigQuery.")
+        job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
+        client.load_table_from_dataframe(final_to_push, TABLE_ID, job_config=job_config).result()
+    else:
+        print("Data is already up to date. No new records found.")
 
 if __name__ == "__main__":
     run_pipeline()
