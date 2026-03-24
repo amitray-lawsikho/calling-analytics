@@ -16,13 +16,14 @@ TABLE_ID = "manual_calls"
 IST = pytz.timezone('Asia/Kolkata')
 
 def run_pipeline():
-    # 1. Fetch Data
     print("Fetching data from Google Sheets...")
     response = requests.get(CSV_URL)
     df = pd.read_csv(io.StringIO(response.text))
 
-    # 2. Map Columns based on your requirements
-    # Adjusting to match the exact headers in your Manual Durations Sheet
+    # CLEAN HEADERS: This fixes the KeyError by removing hidden spaces
+    df.columns = df.columns.str.strip()
+
+    # Updated Mapping (matching the exact strings in the Sheet)
     mapping = {
         'Email address': 'Email',
         'Date': 'Call_Date',
@@ -35,10 +36,14 @@ def run_pipeline():
         'Name of Submitted Manual lead': 'lead_name'
     }
     
-    df = df[list(mapping.keys())].rename(columns=mapping)
+    # Filter only the columns we need
+    try:
+        df = df[list(mapping.keys())].rename(columns=mapping)
+    except KeyError as e:
+        print(f"Error: Could not find columns. Available columns are: {list(df.columns)}")
+        raise e
 
-    # 3. Data Transformation
-    # Convert Date to datetime object and filter last 59 days
+    # Data Transformation
     df['Call_Date'] = pd.to_datetime(df['Call_Date'], dayfirst=True).dt.date
     fifty_nine_days_ago = (datetime.now(IST) - timedelta(days=59)).date()
     df = df[df['Call_Date'] >= fifty_nine_days_ago]
@@ -46,23 +51,18 @@ def run_pipeline():
     # Convert Duration (Minutes to Seconds)
     df['call_duration'] = (pd.to_numeric(df['call_duration'], errors='coerce').fillna(0) * 60).astype(int)
     
-    # Clean Phone Numbers
+    # Clean Phone Numbers (remove .0 and ensure string)
     df['client_number'] = df['client_number'].astype(str).str.replace(r'\.0$', '', regex=True)
     
-    # Add timestamp
     df['updated_at'] = datetime.now(IST)
 
-    # 4. Load to BigQuery
+    # Load to BigQuery
     print(f"Loading {len(df)} rows to BigQuery...")
-    
-    # Use service account from environment variable (GitHub Secrets)
     info = json.loads(os.environ.get("BQ_CREDENTIALS"))
     credentials = service_account.Credentials.from_service_account_info(info)
     client = bigquery.Client(credentials=credentials, project=PROJECT_ID)
 
-    job_config = bigquery.LoadJobConfig(
-        write_disposition="WRITE_TRUNCATE",
-    )
+    job_config = bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE")
 
     target_table = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
     job = client.load_table_from_dataframe(df, target_table, job_config=job_config)
