@@ -46,12 +46,12 @@ def fetch_and_clean(target_date, team_agents_clean):
         
         df = pd.DataFrame(details)
         
-        # 1. Agent Filter
+        # 1. Agent Filter (Match Backfill)
         df["AgentName"] = df["AgentName"].astype(str).str.strip()
         df = df[df["AgentName"].isin(team_agents_clean)].copy()
         if df.empty: return pd.DataFrame()
 
-        # 2. Field Mapping (Standardizing BEFORE filtering)
+        # 2. Standardize Columns (Handling dynamic Ozonetel headers)
         skill_col = "Skill" if "Skill" in df.columns else "skillName"
         status_col = "Status" if "Status" in df.columns else "DialStatus"
         
@@ -62,12 +62,12 @@ def fetch_and_clean(target_date, team_agents_clean):
             "E164": "phone_number"
         })
 
-        # 🔥 CRITICAL FILTER: Exactly as per backfill script
-        # This removes "Inbound Missed" calls that shouldn't be in the dashboard
+        # 🔥 CRITICAL FILTER: Remove "Inbound" + "Unanswered"
+        # Must happen after renaming to 'Status'
         df = df[~((df["Type"] == "Inbound") & (df["Status"] == "Unanswered"))].copy()
         if df.empty: return pd.DataFrame()
 
-        # 3. Durations
+        # 3. Durations & formatting
         def time_to_sec(t):
             try:
                 parts = str(t).split(":")
@@ -76,14 +76,13 @@ def fetch_and_clean(target_date, team_agents_clean):
 
         df["duration_sec"] = df["Duration"].apply(time_to_sec)
         df["talktime_sec"] = df["TalkTime"].apply(time_to_sec)
-        
-        # 4. Standardizing Data
-        df["CallDate"] = pd.to_datetime(day_str).date()
         df["phone_number"] = df["phone_number"].astype(str).str[-10:]
         df["Source"] = "Ozonetel"
         df["updated_at_ampm"] = datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
+        df["CallDate"] = pd.to_datetime(day_str).date()
+        df["CallID"] = df["CallID"].astype(str)
 
-        # 5. Timezone Handling (IST to UTC)
+        # 4. Timezone Handling (IST to UTC)
         for col in ["StartTime", "EndTime"]:
             df[col] = pd.to_datetime(day_str + " " + df[col].astype(str), errors="coerce")
             df[col] = df[col].dt.tz_localize(india, ambiguous='infer').dt.tz_convert("UTC")
@@ -120,19 +119,27 @@ def run_pipeline():
 
     api_df = pd.concat(api_results, ignore_index=True)
 
-    # 6. Deduplication Strategy
+    # ==========================================
+    # INCREMENTAL LOGIC (Deduplication)
+    # ==========================================
     api_df["CallID"] = api_df["CallID"].astype(str)
 
-    # Fetch existing records to prevent duplicates during incremental runs
-    query = f"SELECT CAST(CallID AS STRING) as CallID, StartTime, EndTime FROM `{TABLE_ID}` WHERE CallDate >= '{start_date}'"
+    # Query BQ to see what we already have for this date range
+    query = f"""
+        SELECT CAST(CallID AS STRING) as CallID, StartTime, EndTime 
+        FROM `{TABLE_ID}` 
+        WHERE CallDate >= '{start_date}'
+    """
     existing_bq = client.query(query).to_dataframe()
     
     if not existing_bq.empty:
+        # Standardize timestamps to UTC for perfect comparison
         existing_bq['StartTime'] = pd.to_datetime(existing_bq['StartTime'], utc=True)
         existing_bq['EndTime'] = pd.to_datetime(existing_bq['EndTime'], utc=True)
         api_df['StartTime'] = pd.to_datetime(api_df['StartTime'], utc=True)
         api_df['EndTime'] = pd.to_datetime(api_df['EndTime'], utc=True)
         
+        # Deduplicate using CallID + StartTime + EndTime (Triple Key)
         merged = api_df.merge(
             existing_bq, 
             on=["CallID", "StartTime", "EndTime"], 
@@ -143,12 +150,13 @@ def run_pipeline():
     else:
         final_to_push = api_df
 
-    # 7. Push to BigQuery
+    # ==========================================
+    # PUSH TO BIGQUERY
+    # ==========================================
     if not final_to_push.empty:
-        print(f"Pushing {len(final_to_push)} unique filtered records to BigQuery.")
+        print(f"Pushing {len(final_to_push)} unique records to BigQuery.")
         
-        # Ensure strict typing for BigQuery Parquet conversion
-        final_to_push["CallID"] = final_to_push["CallID"].astype(str)
+        # Final type enforcement
         final_to_push["duration_sec"] = pd.to_numeric(final_to_push["duration_sec"]).fillna(0).astype(int)
         final_to_push["talktime_sec"] = pd.to_numeric(final_to_push["talktime_sec"]).fillna(0).astype(int)
 
@@ -163,7 +171,7 @@ def run_pipeline():
         client.load_table_from_dataframe(final_to_push, TABLE_ID, job_config=job_config).result()
         print("✅ Pipeline run successful.")
     else:
-        print("No new unique records to push.")
+        print("No new unique records found.")
 
 if __name__ == "__main__":
     run_pipeline()
