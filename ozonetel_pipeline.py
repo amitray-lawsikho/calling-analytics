@@ -28,10 +28,10 @@ def get_last_date_from_bq():
         df = client.query(query).to_dataframe()
         last_date = df.iloc[0]['last_date']
         if pd.isna(last_date):
-            return datetime.now(india).date() - timedelta(days=7)
+            return (datetime.now(india) - timedelta(days=7)).date()
         return last_date
     except:
-        return datetime.now(india).date() - timedelta(days=2)
+        return (datetime.now(india) - timedelta(days=2)).date()
 
 def fetch_and_clean(target_date, team_map):
     """Fetches a single day from Ozonetel and formats it for BQ."""
@@ -45,36 +45,49 @@ def fetch_and_clean(target_date, team_map):
         if not details: return pd.DataFrame()
         
         df = pd.DataFrame(details)
-        # Agent Map logic
+        
+        # 1. Agent Filter
         df["clean"] = df["AgentName"].astype(str).str.strip().str.lower()
         df = df[df["clean"].isin(team_map.keys())].copy()
         df["AgentName"] = df["clean"].map(team_map)
         
-        # Standardize columns
+        # 2. Durations & Date Standardizing
         df["CallDate"] = pd.to_datetime(day_str).date()
-        df["duration_sec"] = df["Duration"].apply(lambda x: sum(int(a) * 60**i for i, a in enumerate(reversed(str(x).split(":")))) if ":" in str(x) else 0)
-        df["talktime_sec"] = df["TalkTime"].apply(lambda x: sum(int(a) * 60**i for i, a in enumerate(reversed(str(x).split(":")))) if ":" in str(x) else 0)
         
+        def time_to_sec(t):
+            try:
+                parts = str(t).split(":")
+                return sum(int(x) * 60**i for i, x in enumerate(reversed(parts)))
+            except: return 0
+
+        df["duration_sec"] = df["Duration"].apply(time_to_sec)
+        df["talktime_sec"] = df["TalkTime"].apply(time_to_sec)
+        
+        # 3. Timezone Handling (IST to UTC)
         for col in ["StartTime", "EndTime"]:
             df[col] = pd.to_datetime(day_str + " " + df[col].astype(str), errors="coerce")
+            # Localize as IST then convert to UTC
             df[col] = df[col].dt.tz_localize(india, ambiguous='infer').dt.tz_convert("UTC")
 
         df["phone_number"] = df["E164"].astype(str).str[-10:]
         df["Source"] = "Ozonetel"
+        
+        # 4. Corrected Updated Timestamp Formula
         df["updated_at_ampm"] = datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
         
-        # Rename API fields
+        # 5. Field Mapping & Filtering
         skill_col = "Skill" if "Skill" in df.columns else "skillName"
         status_col = "Status" if "Status" in df.columns else "DialStatus"
         df = df.rename(columns={status_col: "Status", skill_col: "Skill", "CampaignName": "campaignName"})
         
-        # 🔥 FILTER LOGIC: Remove Inbound Unanswered immediately
+        # 🔥 Filter: Remove Inbound Unanswered
         df = df[~((df["Type"] == "Inbound") & (df["Status"] == "Unanswered"))]
         
         return df[["CallDate","CallID","AgentName","Status","Disposition","StartTime","EndTime",
                    "duration_sec","talktime_sec","Skill","Type","campaignName","CallFlow",
                    "phone_number","Source","updated_at_ampm"]]
-    except:
+    except Exception as e:
+        print(f"Error fetching {day_str}: {e}")
         return pd.DataFrame()
 
 # ================= MAIN PIPELINE =================
@@ -82,6 +95,7 @@ def run_pipeline():
     start_date = get_last_date_from_bq()
     today = datetime.now(india).date()
     
+    # Load Team Mapping
     from_team_sheet = pd.read_csv(TEAM_SHEET_URL)
     team_map = dict(zip(from_team_sheet.iloc[:, 2].str.strip().str.lower(), from_team_sheet.iloc[:, 2].str.strip()))
 
@@ -94,19 +108,22 @@ def run_pipeline():
     
     api_df = pd.concat(api_results, ignore_index=True) if api_results else pd.DataFrame()
     if api_df.empty:
-        print("No valid data (after filtering) found in API for the specified range.")
+        print("No valid data found in API for range.")
         return
 
-    # Fetch existing data from BQ for comparison
+    # 6. Deduplication Strategy using TRIPLE KEY
+    # We fetch data starting from the earliest date we just pulled
     query = f"SELECT CallID, StartTime, EndTime FROM `{TABLE_ID}` WHERE CallDate >= '{start_date}'"
     existing_bq = client.query(query).to_dataframe()
     
     if not existing_bq.empty:
+        # Standardize for comparison
         existing_bq['StartTime'] = pd.to_datetime(existing_bq['StartTime'], utc=True)
         existing_bq['EndTime'] = pd.to_datetime(existing_bq['EndTime'], utc=True)
-
-    # Logical Deduplication
-    if not existing_bq.empty:
+        api_df['StartTime'] = pd.to_datetime(api_df['StartTime'], utc=True)
+        api_df['EndTime'] = pd.to_datetime(api_df['EndTime'], utc=True)
+        
+        # Triple Key Merge
         merged = api_df.merge(
             existing_bq, 
             on=["CallID", "StartTime", "EndTime"], 
@@ -117,9 +134,9 @@ def run_pipeline():
     else:
         final_to_push = api_df
 
-    # Push to BigQuery
+    # 7. Push to BigQuery
     if not final_to_push.empty:
-        print(f"Pushing {len(final_to_push)} filtered records to BigQuery.")
+        print(f"Pushing {len(final_to_push)} unique filtered records to BigQuery.")
         job_config = bigquery.LoadJobConfig(
             write_disposition="WRITE_APPEND",
             schema=[
@@ -130,7 +147,7 @@ def run_pipeline():
         )
         client.load_table_from_dataframe(final_to_push, TABLE_ID, job_config=job_config).result()
     else:
-        print("All records for this range are already in BigQuery or were filtered out.")
+        print("No new unique records to push.")
 
 if __name__ == "__main__":
     run_pipeline()
