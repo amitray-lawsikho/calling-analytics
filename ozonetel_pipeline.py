@@ -43,10 +43,15 @@ def time_to_seconds(t):
 def process_day_data(details, team_agents_clean):
     """Processes API details exactly like the Colab process_df function."""
     df = pd.DataFrame(details)
+    if df.empty: return pd.DataFrame()
     
     # 1. Agent Filter (Mirroring Backfill)
     df["AgentName"] = df["AgentName"].astype(str).str.strip()
-    df = df[df["AgentName"].isin(team_agents_clean)].copy()
+    # Case-insensitive agent check for better reliability
+    df["AgentName_Lower"] = df["AgentName"].str.lower()
+    team_agents_lower = [x.lower() for x in team_agents_clean]
+    df = df[df["AgentName_Lower"].isin(team_agents_lower)].copy()
+    
     if df.empty: return pd.DataFrame()
 
     # 2. Add derived fields
@@ -84,7 +89,7 @@ def process_day_data(details, team_agents_clean):
 
 # ================= MAIN PIPELINE =================
 def run_pipeline():
-    # Load Team Mapping (Matching Colab Logic)
+    # Load Team Mapping
     team_df = pd.read_csv(TEAM_SHEET_URL)
     team_agents = team_df.iloc[:, 2].dropna().unique().tolist()
     team_agents_clean = [str(x).strip() for x in team_agents]
@@ -94,13 +99,11 @@ def run_pipeline():
     
     all_data = []
     curr = start_date
-    
     headers = {"Content-Type": "application/json", "apiKey": API_KEY}
 
     while curr <= today:
         day_str = curr.strftime("%Y-%m-%d")
         print(f"Fetching Ozonetel data for: {day_str}")
-        
         payload = {"fromDate": f"{day_str} 00:00:00", "toDate": f"{day_str} 23:59:59", "userName": USERNAME}
         
         try:
@@ -109,7 +112,7 @@ def run_pipeline():
             if details:
                 processed_df = process_day_data(details, team_agents_clean)
                 if not processed_df.empty:
-                    processed_df["CallDate"] = curr # Keep date object for later
+                    processed_df["CallDate"] = curr
                     all_data.append(processed_df)
         except Exception as e:
             print(f"Error on {day_str}: {e}")
@@ -121,13 +124,14 @@ def run_pipeline():
         print("No valid data found in API for range.")
         return
 
-    # Combine everything
     final_df = pd.concat(all_data, ignore_index=True)
 
-    # 🔥 CRITICAL FILTER: Exactly as per Backfill script
-    # This removes "Inbound" + "Unanswered"
+    # 🔥 CRITICAL CASE-INSENSITIVE FILTER: Remove "Inbound" + "Unanswered"
+    # Converts columns to lower temporarily to catch 'InBound' or 'Unanswered' variations
     initial_count = len(final_df)
-    final_df = final_df[~((final_df["Type"] == "Inbound") & (final_df["Status"] == "Unanswered"))].copy()
+    final_df = final_df[~((final_df["Type"].str.lower() == "inbound") & 
+                          (final_df["Status"].str.lower() == "unanswered"))].copy()
+    
     print(f"Filtering: Removed {initial_count - len(final_df)} missed inbound calls.")
 
     if final_df.empty:
@@ -143,19 +147,14 @@ def run_pipeline():
     final_df.drop(columns=["CallDate_str"], inplace=True)
     final_df["CallDate"] = pd.to_datetime(final_df["CallDate"]).dt.date
 
-    # 2. Add Update Timestamp & Enforce Types
+    # 2. Add Metadata & Type Enforcement
     final_df["updated_at_ampm"] = datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
     final_df["CallID"] = final_df["CallID"].astype(str)
     final_df["duration_sec"] = pd.to_numeric(final_df["duration_sec"]).fillna(0).astype(int)
     final_df["talktime_sec"] = pd.to_numeric(final_df["talktime_sec"]).fillna(0).astype(int)
 
-    # 3. INCREMENTAL LOGIC (Deduplication)
-    # We query BQ to find records we already have to avoid duplicates
-    query = f"""
-        SELECT CAST(CallID AS STRING) as CallID, StartTime, EndTime 
-        FROM `{TABLE_ID}` 
-        WHERE CallDate >= '{start_date}'
-    """
+    # 3. INCREMENTAL LOGIC (Triple Key Deduplication)
+    query = f"SELECT CAST(CallID AS STRING) as CallID, StartTime, EndTime FROM `{TABLE_ID}` WHERE CallDate >= '{start_date}'"
     existing_bq = client.query(query).to_dataframe()
     
     if not existing_bq.empty:
@@ -164,12 +163,7 @@ def run_pipeline():
         final_df['StartTime'] = pd.to_datetime(final_df['StartTime'], utc=True)
         final_df['EndTime'] = pd.to_datetime(final_df['EndTime'], utc=True)
         
-        merged = final_df.merge(
-            existing_bq, 
-            on=["CallID", "StartTime", "EndTime"], 
-            how="left", 
-            indicator=True
-        )
+        merged = final_df.merge(existing_bq, on=["CallID", "StartTime", "EndTime"], how="left", indicator=True)
         to_push = merged[merged["_merge"] == "left_only"].drop(columns=["_merge"]).copy()
     else:
         to_push = final_df
