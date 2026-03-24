@@ -31,9 +31,10 @@ def get_last_date_from_bq():
             return (datetime.now(india) - timedelta(days=7)).date()
         return last_date
     except:
+        # Fallback if table doesn't exist or query fails
         return (datetime.now(india) - timedelta(days=2)).date()
 
-def fetch_and_clean(target_date, team_map):
+def fetch_and_clean(target_date, team_agents_clean):
     """Fetches a single day from Ozonetel and formats it for BQ."""
     day_str = target_date.strftime("%Y-%m-%d")
     payload = {"fromDate": f"{day_str} 00:00:00", "toDate": f"{day_str} 23:59:59", "userName": USERNAME}
@@ -46,12 +47,23 @@ def fetch_and_clean(target_date, team_map):
         
         df = pd.DataFrame(details)
         
-        # 1. Agent Filter
-        df["clean"] = df["AgentName"].astype(str).str.strip().str.lower()
-        df = df[df["clean"].isin(team_map.keys())].copy()
-        df["AgentName"] = df["clean"].map(team_map)
+        # 1. Agent Filter (Matching Backfill Logic)
+        df["AgentName"] = df["AgentName"].astype(str).str.strip()
+        df = df[df["AgentName"].isin(team_agents_clean)].copy()
         
-        # 2. Durations & Date Standardizing
+        if df.empty: return pd.DataFrame()
+
+        # 2. Field Mapping & Initial Cleaning
+        skill_col = "Skill" if "Skill" in df.columns else "skillName"
+        status_col = "Status" if "Status" in df.columns else "DialStatus"
+        df = df.rename(columns={status_col: "Status", skill_col: "Skill", "CampaignName": "campaignName"})
+
+        # 🔥 CRITICAL FILTER: Remove Inbound Unanswered (Mirroring Backfill)
+        df = df[~((df["Type"] == "Inbound") & (df["Status"] == "Unanswered"))]
+        
+        if df.empty: return pd.DataFrame()
+
+        # 3. Durations & Date Standardizing
         df["CallDate"] = pd.to_datetime(day_str).date()
         
         def time_to_sec(t):
@@ -63,24 +75,14 @@ def fetch_and_clean(target_date, team_map):
         df["duration_sec"] = df["Duration"].apply(time_to_sec)
         df["talktime_sec"] = df["TalkTime"].apply(time_to_sec)
         
-        # 3. Timezone Handling (IST to UTC)
+        # 4. Timezone Handling (IST to UTC)
         for col in ["StartTime", "EndTime"]:
             df[col] = pd.to_datetime(day_str + " " + df[col].astype(str), errors="coerce")
             df[col] = df[col].dt.tz_localize(india, ambiguous='infer').dt.tz_convert("UTC")
 
         df["phone_number"] = df["E164"].astype(str).str[-10:]
         df["Source"] = "Ozonetel"
-        
-        # 4. Corrected Updated Timestamp Formula
         df["updated_at_ampm"] = datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
-        
-        # 5. Field Mapping & Filtering
-        skill_col = "Skill" if "Skill" in df.columns else "skillName"
-        status_col = "Status" if "Status" in df.columns else "DialStatus"
-        df = df.rename(columns={status_col: "Status", skill_col: "Skill", "CampaignName": "campaignName"})
-        
-        # Filter: Remove Inbound Unanswered
-        df = df[~((df["Type"] == "Inbound") & (df["Status"] == "Unanswered"))]
         
         return df[["CallDate","CallID","AgentName","Status","Disposition","StartTime","EndTime",
                    "duration_sec","talktime_sec","Skill","Type","campaignName","CallFlow",
@@ -91,17 +93,21 @@ def fetch_and_clean(target_date, team_map):
 
 # ================= MAIN PIPELINE =================
 def run_pipeline():
+    # Load Team Mapping (Matching Backfill logic)
+    team_df = pd.read_csv(TEAM_SHEET_URL)
+    team_agents = team_df.iloc[:, 2].dropna().unique().tolist()
+    team_agents_clean = [x.strip() for x in team_agents]
+
     start_date = get_last_date_from_bq()
     today = datetime.now(india).date()
     
-    # Load Team Mapping
-    from_team_sheet = pd.read_csv(TEAM_SHEET_URL)
-    team_map = dict(zip(from_team_sheet.iloc[:, 2].str.strip().str.lower(), from_team_sheet.iloc[:, 2].str.strip()))
-
     api_results = []
     curr = start_date
     while curr <= today:
-        api_results.append(fetch_and_clean(curr, team_map))
+        print(f"Fetching Ozonetel data for: {curr}")
+        day_df = fetch_and_clean(curr, team_agents_clean)
+        if not day_df.empty:
+            api_results.append(day_df)
         curr += timedelta(days=1)
         time.sleep(1)
     
@@ -110,8 +116,7 @@ def run_pipeline():
         print("No valid data found in API for range.")
         return
 
-    # 6. Deduplication Strategy using TRIPLE KEY
-    # Standardize CallID for merging to prevent type mismatch during join
+    # 6. Deduplication Strategy
     api_df["CallID"] = api_df["CallID"].astype(str)
 
     query = f"SELECT CAST(CallID AS STRING) as CallID, StartTime, EndTime FROM `{TABLE_ID}` WHERE CallDate >= '{start_date}'"
@@ -137,21 +142,21 @@ def run_pipeline():
     if not final_to_push.empty:
         print(f"Pushing {len(final_to_push)} unique filtered records to BigQuery.")
         
-        # MANDATORY: Final type casting to ensure PyArrow doesn't fail
         final_to_push["CallID"] = final_to_push["CallID"].astype(str)
-        
+        final_to_push["AgentName"] = final_to_push["AgentName"].astype(str)
+        final_to_push["duration_sec"] = pd.to_numeric(final_to_push["duration_sec"]).fillna(0).astype(int)
+        final_to_push["talktime_sec"] = pd.to_numeric(final_to_push["talktime_sec"]).fillna(0).astype(int)
+
         job_config = bigquery.LoadJobConfig(
             write_disposition="WRITE_APPEND",
             schema=[
-                bigquery.SchemaField("CallDate", "DATE"),
-                bigquery.SchemaField("CallID", "STRING"),
                 bigquery.SchemaField("StartTime", "TIMESTAMP"),
                 bigquery.SchemaField("EndTime", "TIMESTAMP"),
-                bigquery.SchemaField("duration_sec", "INTEGER"),
-                bigquery.SchemaField("talktime_sec", "INTEGER"),
+                bigquery.SchemaField("CallDate", "DATE"),
             ]
         )
         client.load_table_from_dataframe(final_to_push, TABLE_ID, job_config=job_config).result()
+        print("✅ Pipeline run successful.")
     else:
         print("No new unique records to push.")
 
