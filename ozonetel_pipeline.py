@@ -50,7 +50,7 @@ def fetch_and_clean(target_date, team_map):
         df = df[df["clean"].isin(team_map.keys())].copy()
         df["AgentName"] = df["clean"].map(team_map)
         
-        # Standardize columns to match your ozonetel_calls table schema
+        # Standardize columns
         df["CallDate"] = pd.to_datetime(day_str).date()
         df["duration_sec"] = df["Duration"].apply(lambda x: sum(int(a) * 60**i for i, a in enumerate(reversed(str(x).split(":")))) if ":" in str(x) else 0)
         df["talktime_sec"] = df["TalkTime"].apply(lambda x: sum(int(a) * 60**i for i, a in enumerate(reversed(str(x).split(":")))) if ":" in str(x) else 0)
@@ -63,10 +63,13 @@ def fetch_and_clean(target_date, team_map):
         df["Source"] = "Ozonetel"
         df["updated_at_ampm"] = datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
         
-        # Rename API fields to match BQ Schema
+        # Rename API fields
         skill_col = "Skill" if "Skill" in df.columns else "skillName"
         status_col = "Status" if "Status" in df.columns else "DialStatus"
         df = df.rename(columns={status_col: "Status", skill_col: "Skill", "CampaignName": "campaignName"})
+        
+        # 🔥 FILTER LOGIC: Remove Inbound Unanswered immediately
+        df = df[~((df["Type"] == "Inbound") & (df["Status"] == "Unanswered"))]
         
         return df[["CallDate","CallID","AgentName","Status","Disposition","StartTime","EndTime",
                    "duration_sec","talktime_sec","Skill","Type","campaignName","CallFlow",
@@ -76,15 +79,12 @@ def fetch_and_clean(target_date, team_map):
 
 # ================= MAIN PIPELINE =================
 def run_pipeline():
-    # 1. Determine the gap (Dynamic Start Date)
     start_date = get_last_date_from_bq()
     today = datetime.now(india).date()
     
-    # Existing team map function
     from_team_sheet = pd.read_csv(TEAM_SHEET_URL)
     team_map = dict(zip(from_team_sheet.iloc[:, 2].str.strip().str.lower(), from_team_sheet.iloc[:, 2].str.strip()))
 
-    # 2. Fetch all data for the gap period from API
     api_results = []
     curr = start_date
     while curr <= today:
@@ -94,20 +94,18 @@ def run_pipeline():
     
     api_df = pd.concat(api_results, ignore_index=True) if api_results else pd.DataFrame()
     if api_df.empty:
-        print("No data found in API for the specified range.")
+        print("No valid data (after filtering) found in API for the specified range.")
         return
 
-    # 3. Fetch existing data from BQ for the same window to compare
+    # Fetch existing data from BQ for comparison
     query = f"SELECT CallID, StartTime, EndTime FROM `{TABLE_ID}` WHERE CallDate >= '{start_date}'"
     existing_bq = client.query(query).to_dataframe()
     
-    # Standardize types for comparison
     if not existing_bq.empty:
         existing_bq['StartTime'] = pd.to_datetime(existing_bq['StartTime'], utc=True)
         existing_bq['EndTime'] = pd.to_datetime(existing_bq['EndTime'], utc=True)
 
-    # 4. Logical Deduplication (Pure Pandas)
-    # This identifies rows in api_df that DO NOT exist in existing_bq
+    # Logical Deduplication
     if not existing_bq.empty:
         merged = api_df.merge(
             existing_bq, 
@@ -119,13 +117,20 @@ def run_pipeline():
     else:
         final_to_push = api_df
 
-    # 5. Append Only New Rows
+    # Push to BigQuery
     if not final_to_push.empty:
-        print(f"Pushing {len(final_to_push)} new records to BigQuery.")
-        job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
+        print(f"Pushing {len(final_to_push)} filtered records to BigQuery.")
+        job_config = bigquery.LoadJobConfig(
+            write_disposition="WRITE_APPEND",
+            schema=[
+                bigquery.SchemaField("StartTime", "TIMESTAMP"),
+                bigquery.SchemaField("EndTime", "TIMESTAMP"),
+                bigquery.SchemaField("CallDate", "DATE"),
+            ]
+        )
         client.load_table_from_dataframe(final_to_push, TABLE_ID, job_config=job_config).result()
     else:
-        print("Data is already up to date. No new records found.")
+        print("All records for this range are already in BigQuery or were filtered out.")
 
 if __name__ == "__main__":
     run_pipeline()
