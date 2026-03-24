@@ -33,98 +33,124 @@ def get_last_date_from_bq():
     except:
         return (datetime.now(india) - timedelta(days=2)).date()
 
-def fetch_and_clean(target_date, team_agents_clean):
-    """Fetches a single day from Ozonetel and formats it for BQ."""
-    day_str = target_date.strftime("%Y-%m-%d")
-    payload = {"fromDate": f"{day_str} 00:00:00", "toDate": f"{day_str} 23:59:59", "userName": USERNAME}
-    headers = {"Content-Type": "application/json", "apiKey": API_KEY}
-    
+def time_to_seconds(t):
     try:
-        res = requests.get(API_URL, headers=headers, json=payload, timeout=60)
-        details = res.json().get("details", [])
-        if not details: return pd.DataFrame()
-        
-        df = pd.DataFrame(details)
-        
-        # 1. Agent Filter (Match Backfill)
-        df["AgentName"] = df["AgentName"].astype(str).str.strip()
-        df = df[df["AgentName"].isin(team_agents_clean)].copy()
-        if df.empty: return pd.DataFrame()
+        h, m, s = map(int, str(t).split(":"))
+        return h*3600 + m*60 + s
+    except:
+        return 0
 
-        # 2. Standardize Columns (Handling dynamic Ozonetel headers)
-        skill_col = "Skill" if "Skill" in df.columns else "skillName"
-        status_col = "Status" if "Status" in df.columns else "DialStatus"
-        
-        df = df.rename(columns={
-            status_col: "Status", 
-            skill_col: "Skill", 
-            "CampaignName": "campaignName",
-            "E164": "phone_number"
-        })
+def process_day_data(details, team_agents_clean):
+    """Processes API details exactly like the Colab process_df function."""
+    df = pd.DataFrame(details)
+    
+    # 1. Agent Filter (Mirroring Backfill)
+    df["AgentName"] = df["AgentName"].astype(str).str.strip()
+    df = df[df["AgentName"].isin(team_agents_clean)].copy()
+    if df.empty: return pd.DataFrame()
 
-        # 🔥 CRITICAL FILTER: Remove "Inbound" + "Unanswered"
-        # Must happen after renaming to 'Status'
-        df = df[~((df["Type"] == "Inbound") & (df["Status"] == "Unanswered"))].copy()
-        if df.empty: return pd.DataFrame()
+    # 2. Add derived fields
+    df["duration_sec"] = df["Duration"].apply(time_to_seconds)
+    df["talktime_sec"] = df["TalkTime"].apply(time_to_seconds)
+    df["phone_number"] = df["E164"].astype(str).str[-10:]
+    df["Source"] = "Ozonetel"
 
-        # 3. Durations & formatting
-        def time_to_sec(t):
-            try:
-                parts = str(t).split(":")
-                return sum(int(x) * 60**i for i, x in enumerate(reversed(parts)))
-            except: return 0
+    # 3. Dynamic Column Mapping
+    skill_col = "Skill" if "Skill" in df.columns else "skillName"
+    status_col = "Status" if "Status" in df.columns else "DialStatus"
 
-        df["duration_sec"] = df["Duration"].apply(time_to_sec)
-        df["talktime_sec"] = df["TalkTime"].apply(time_to_sec)
-        df["phone_number"] = df["phone_number"].astype(str).str[-10:]
-        df["Source"] = "Ozonetel"
-        df["updated_at_ampm"] = datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
-        df["CallDate"] = pd.to_datetime(day_str).date()
-        df["CallID"] = df["CallID"].astype(str)
+    final_columns = {
+        "CallID": "CallID",
+        "AgentName": "AgentName",
+        status_col: "Status",
+        "Disposition": "Disposition",
+        "StartTime": "StartTime",
+        "EndTime": "EndTime",
+        "duration_sec": "duration_sec",
+        "talktime_sec": "talktime_sec",
+        skill_col: "Skill",
+        "Type": "Type",
+        "CampaignName": "campaignName",
+        "CallFlow": "CallFlow",
+        "phone_number": "phone_number",
+        "Source": "Source"
+    }
 
-        # 4. Timezone Handling (IST to UTC)
-        for col in ["StartTime", "EndTime"]:
-            df[col] = pd.to_datetime(day_str + " " + df[col].astype(str), errors="coerce")
-            df[col] = df[col].dt.tz_localize(india, ambiguous='infer').dt.tz_convert("UTC")
+    available_cols = [col for col in final_columns.keys() if col in df.columns]
+    df = df[available_cols].copy()
+    df.rename(columns=final_columns, inplace=True)
 
-        return df[["CallDate","CallID","AgentName","Status","Disposition","StartTime","EndTime",
-                   "duration_sec","talktime_sec","Skill","Type","campaignName","CallFlow",
-                   "phone_number","Source","updated_at_ampm"]]
-    except Exception as e:
-        print(f"Error fetching {day_str}: {e}")
-        return pd.DataFrame()
+    return df
 
 # ================= MAIN PIPELINE =================
 def run_pipeline():
-    # Load Team Mapping
+    # Load Team Mapping (Matching Colab Logic)
     team_df = pd.read_csv(TEAM_SHEET_URL)
-    team_agents_clean = [str(x).strip() for x in team_df.iloc[:, 2].dropna().unique()]
+    team_agents = team_df.iloc[:, 2].dropna().unique().tolist()
+    team_agents_clean = [str(x).strip() for x in team_agents]
 
     start_date = get_last_date_from_bq()
     today = datetime.now(india).date()
     
-    api_results = []
+    all_data = []
     curr = start_date
+    
+    headers = {"Content-Type": "application/json", "apiKey": API_KEY}
+
     while curr <= today:
-        print(f"Fetching Ozonetel data for: {curr}")
-        day_df = fetch_and_clean(curr, team_agents_clean)
-        if not day_df.empty:
-            api_results.append(day_df)
+        day_str = curr.strftime("%Y-%m-%d")
+        print(f"Fetching Ozonetel data for: {day_str}")
+        
+        payload = {"fromDate": f"{day_str} 00:00:00", "toDate": f"{day_str} 23:59:59", "userName": USERNAME}
+        
+        try:
+            res = requests.get(API_URL, headers=headers, json=payload, timeout=60)
+            details = res.json().get("details", [])
+            if details:
+                processed_df = process_day_data(details, team_agents_clean)
+                if not processed_df.empty:
+                    processed_df["CallDate"] = curr # Keep date object for later
+                    all_data.append(processed_df)
+        except Exception as e:
+            print(f"Error on {day_str}: {e}")
+        
         curr += timedelta(days=1)
         time.sleep(1)
     
-    if not api_results:
+    if not all_data:
         print("No valid data found in API for range.")
         return
 
-    api_df = pd.concat(api_results, ignore_index=True)
+    # Combine everything
+    final_df = pd.concat(all_data, ignore_index=True)
 
-    # ==========================================
-    # INCREMENTAL LOGIC (Deduplication)
-    # ==========================================
-    api_df["CallID"] = api_df["CallID"].astype(str)
+    # 🔥 CRITICAL FILTER: Exactly as per Backfill script
+    # This removes "Inbound" + "Unanswered"
+    initial_count = len(final_df)
+    final_df = final_df[~((final_df["Type"] == "Inbound") & (final_df["Status"] == "Unanswered"))].copy()
+    print(f"Filtering: Removed {initial_count - len(final_df)} missed inbound calls.")
 
-    # Query BQ to see what we already have for this date range
+    if final_df.empty:
+        print("No records left after filtering.")
+        return
+
+    # 1. Standardize Timestamps (IST to UTC)
+    final_df["CallDate_str"] = final_df["CallDate"].astype(str)
+    for col in ["StartTime", "EndTime"]:
+        final_df[col] = pd.to_datetime(final_df["CallDate_str"] + " " + final_df[col].astype(str), errors='coerce')
+        final_df[col] = final_df[col].dt.tz_localize(india, ambiguous='infer').dt.tz_convert("UTC")
+
+    final_df.drop(columns=["CallDate_str"], inplace=True)
+    final_df["CallDate"] = pd.to_datetime(final_df["CallDate"]).dt.date
+
+    # 2. Add Update Timestamp & Enforce Types
+    final_df["updated_at_ampm"] = datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
+    final_df["CallID"] = final_df["CallID"].astype(str)
+    final_df["duration_sec"] = pd.to_numeric(final_df["duration_sec"]).fillna(0).astype(int)
+    final_df["talktime_sec"] = pd.to_numeric(final_df["talktime_sec"]).fillna(0).astype(int)
+
+    # 3. INCREMENTAL LOGIC (Deduplication)
+    # We query BQ to find records we already have to avoid duplicates
     query = f"""
         SELECT CAST(CallID AS STRING) as CallID, StartTime, EndTime 
         FROM `{TABLE_ID}` 
@@ -133,33 +159,24 @@ def run_pipeline():
     existing_bq = client.query(query).to_dataframe()
     
     if not existing_bq.empty:
-        # Standardize timestamps to UTC for perfect comparison
         existing_bq['StartTime'] = pd.to_datetime(existing_bq['StartTime'], utc=True)
         existing_bq['EndTime'] = pd.to_datetime(existing_bq['EndTime'], utc=True)
-        api_df['StartTime'] = pd.to_datetime(api_df['StartTime'], utc=True)
-        api_df['EndTime'] = pd.to_datetime(api_df['EndTime'], utc=True)
+        final_df['StartTime'] = pd.to_datetime(final_df['StartTime'], utc=True)
+        final_df['EndTime'] = pd.to_datetime(final_df['EndTime'], utc=True)
         
-        # Deduplicate using CallID + StartTime + EndTime (Triple Key)
-        merged = api_df.merge(
+        merged = final_df.merge(
             existing_bq, 
             on=["CallID", "StartTime", "EndTime"], 
             how="left", 
             indicator=True
         )
-        final_to_push = merged[merged["_merge"] == "left_only"].drop(columns=["_merge"])
+        to_push = merged[merged["_merge"] == "left_only"].drop(columns=["_merge"]).copy()
     else:
-        final_to_push = api_df
+        to_push = final_df
 
-    # ==========================================
-    # PUSH TO BIGQUERY
-    # ==========================================
-    if not final_to_push.empty:
-        print(f"Pushing {len(final_to_push)} unique records to BigQuery.")
-        
-        # Final type enforcement
-        final_to_push["duration_sec"] = pd.to_numeric(final_to_push["duration_sec"]).fillna(0).astype(int)
-        final_to_push["talktime_sec"] = pd.to_numeric(final_to_push["talktime_sec"]).fillna(0).astype(int)
-
+    # 4. PUSH TO BIGQUERY
+    if not to_push.empty:
+        print(f"Pushing {len(to_push)} unique records to BigQuery.")
         job_config = bigquery.LoadJobConfig(
             write_disposition="WRITE_APPEND",
             schema=[
@@ -168,7 +185,7 @@ def run_pipeline():
                 bigquery.SchemaField("CallDate", "DATE"),
             ]
         )
-        client.load_table_from_dataframe(final_to_push, TABLE_ID, job_config=job_config).result()
+        client.load_table_from_dataframe(to_push, TABLE_ID, job_config=job_config).result()
         print("✅ Pipeline run successful.")
     else:
         print("No new unique records found.")
