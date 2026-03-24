@@ -31,7 +31,6 @@ def get_last_date_from_bq():
             return (datetime.now(india) - timedelta(days=7)).date()
         return last_date
     except:
-        # Fallback if table doesn't exist or query fails
         return (datetime.now(india) - timedelta(days=2)).date()
 
 def fetch_and_clean(target_date, team_agents_clean):
@@ -47,25 +46,28 @@ def fetch_and_clean(target_date, team_agents_clean):
         
         df = pd.DataFrame(details)
         
-        # 1. Agent Filter (Matching Backfill Logic)
+        # 1. Agent Filter
         df["AgentName"] = df["AgentName"].astype(str).str.strip()
         df = df[df["AgentName"].isin(team_agents_clean)].copy()
-        
         if df.empty: return pd.DataFrame()
 
-        # 2. Field Mapping & Initial Cleaning
+        # 2. Field Mapping (Standardizing BEFORE filtering)
         skill_col = "Skill" if "Skill" in df.columns else "skillName"
         status_col = "Status" if "Status" in df.columns else "DialStatus"
-        df = df.rename(columns={status_col: "Status", skill_col: "Skill", "CampaignName": "campaignName"})
-
-        # 🔥 CRITICAL FILTER: Remove Inbound Unanswered (Mirroring Backfill)
-        df = df[~((df["Type"] == "Inbound") & (df["Status"] == "Unanswered"))]
         
+        df = df.rename(columns={
+            status_col: "Status", 
+            skill_col: "Skill", 
+            "CampaignName": "campaignName",
+            "E164": "phone_number"
+        })
+
+        # 🔥 CRITICAL FILTER: Exactly as per backfill script
+        # This removes "Inbound Missed" calls that shouldn't be in the dashboard
+        df = df[~((df["Type"] == "Inbound") & (df["Status"] == "Unanswered"))].copy()
         if df.empty: return pd.DataFrame()
 
-        # 3. Durations & Date Standardizing
-        df["CallDate"] = pd.to_datetime(day_str).date()
-        
+        # 3. Durations
         def time_to_sec(t):
             try:
                 parts = str(t).split(":")
@@ -75,15 +77,17 @@ def fetch_and_clean(target_date, team_agents_clean):
         df["duration_sec"] = df["Duration"].apply(time_to_sec)
         df["talktime_sec"] = df["TalkTime"].apply(time_to_sec)
         
-        # 4. Timezone Handling (IST to UTC)
+        # 4. Standardizing Data
+        df["CallDate"] = pd.to_datetime(day_str).date()
+        df["phone_number"] = df["phone_number"].astype(str).str[-10:]
+        df["Source"] = "Ozonetel"
+        df["updated_at_ampm"] = datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
+
+        # 5. Timezone Handling (IST to UTC)
         for col in ["StartTime", "EndTime"]:
             df[col] = pd.to_datetime(day_str + " " + df[col].astype(str), errors="coerce")
             df[col] = df[col].dt.tz_localize(india, ambiguous='infer').dt.tz_convert("UTC")
 
-        df["phone_number"] = df["E164"].astype(str).str[-10:]
-        df["Source"] = "Ozonetel"
-        df["updated_at_ampm"] = datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
-        
         return df[["CallDate","CallID","AgentName","Status","Disposition","StartTime","EndTime",
                    "duration_sec","talktime_sec","Skill","Type","campaignName","CallFlow",
                    "phone_number","Source","updated_at_ampm"]]
@@ -93,10 +97,9 @@ def fetch_and_clean(target_date, team_agents_clean):
 
 # ================= MAIN PIPELINE =================
 def run_pipeline():
-    # Load Team Mapping (Matching Backfill logic)
+    # Load Team Mapping
     team_df = pd.read_csv(TEAM_SHEET_URL)
-    team_agents = team_df.iloc[:, 2].dropna().unique().tolist()
-    team_agents_clean = [x.strip() for x in team_agents]
+    team_agents_clean = [str(x).strip() for x in team_df.iloc[:, 2].dropna().unique()]
 
     start_date = get_last_date_from_bq()
     today = datetime.now(india).date()
@@ -111,14 +114,16 @@ def run_pipeline():
         curr += timedelta(days=1)
         time.sleep(1)
     
-    api_df = pd.concat(api_results, ignore_index=True) if api_results else pd.DataFrame()
-    if api_df.empty:
+    if not api_results:
         print("No valid data found in API for range.")
         return
+
+    api_df = pd.concat(api_results, ignore_index=True)
 
     # 6. Deduplication Strategy
     api_df["CallID"] = api_df["CallID"].astype(str)
 
+    # Fetch existing records to prevent duplicates during incremental runs
     query = f"SELECT CAST(CallID AS STRING) as CallID, StartTime, EndTime FROM `{TABLE_ID}` WHERE CallDate >= '{start_date}'"
     existing_bq = client.query(query).to_dataframe()
     
@@ -142,8 +147,8 @@ def run_pipeline():
     if not final_to_push.empty:
         print(f"Pushing {len(final_to_push)} unique filtered records to BigQuery.")
         
+        # Ensure strict typing for BigQuery Parquet conversion
         final_to_push["CallID"] = final_to_push["CallID"].astype(str)
-        final_to_push["AgentName"] = final_to_push["AgentName"].astype(str)
         final_to_push["duration_sec"] = pd.to_numeric(final_to_push["duration_sec"]).fillna(0).astype(int)
         final_to_push["talktime_sec"] = pd.to_numeric(final_to_push["talktime_sec"]).fillna(0).astype(int)
 
