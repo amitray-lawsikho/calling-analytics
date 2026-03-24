@@ -58,13 +58,13 @@ jobs:
         ACEFONE_API_KEY: ${{ secrets.ACEFONE_API_KEY }}
         ACEFONE_ACCOUNT_ID: ${{ secrets.ACEFONE_ACCOUNT_ID }}
 
+    # ---------------- REVENUE PIPELINE ----------------
+    - name: Running Revenue Pipeline
+      run: python revenue_pipeline.py
+
     # ---------------- LSQ PIPELINE ----------------
     - name: Running LSQ Pipeline
       run: python lsq_pipeline.py
       env:
         LSQ_ACCESS_KEY: ${{ secrets.LSQ_ACCESS_KEY }}
         LSQ_SECRET_KEY: ${{ secrets.LSQ_SECRET_KEY }}
-
-    # ---------------- REVENUE PIPELINE ----------------
-    - name: Running Revenue Pipeline
-      run: python revenue_pipeline.py
