@@ -1,0 +1,27 @@
+name: Manual Calls Pipeline
+
+on:
+  workflow_dispatch: # Allows manual trigger
+  schedule:
+    - cron: '0 2 * * *' # Runs daily at 2:00 AM UTC (7:30 AM IST)
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Dependencies
+        run: |
+          pip install pandas requests google-cloud-bigquery pyarrow pytz
+
+      - name: Run Pipeline
+        env:
+          BQ_CREDENTIALS: ${{ secrets.BQ_CREDENTIALS }}
+        run: python manual_calls_pipeline.py
