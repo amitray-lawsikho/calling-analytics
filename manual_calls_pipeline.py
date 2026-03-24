@@ -20,8 +20,7 @@ def run_pipeline():
     response = requests.get(CSV_URL)
     df = pd.read_csv(io.StringIO(response.text))
 
-    # 1. AGGRESSIVE HEADER CLEANING
-    # This removes newlines (\n), carriage returns (\r), and extra spaces
+    # 1. CLEAN HEADERS (Handles hidden newlines/spaces)
     df.columns = df.columns.str.replace(r'\s+', ' ', regex=True).str.strip()
 
     mapping = {
@@ -36,19 +35,17 @@ def run_pipeline():
         'Name of Submitted Manual lead': 'lead_name'
     }
     
-    # Check for missing columns and print them clearly if they fail
-    missing = [col for col in mapping.keys() if col not in df.columns]
-    if missing:
-        print(f"CRITICAL ERROR: The following columns were not found: {missing}")
-        print(f"Actual columns found in sheet: {df.columns.tolist()}")
-        return
-
+    # Select and Rename
     df = df[list(mapping.keys())].rename(columns=mapping)
 
-    # 2. DATA TRANSFORMATION & CLEANING
-    # Handle Indian Date Format (DD/MM/YYYY)
+    # 2. DATA TRANSFORMATION
+    # Format names to Proper Case (Raghav Jha)
+    df['lead_name'] = df['lead_name'].astype(str).str.title().str.strip()
+    df['call_owner'] = df['call_owner'].astype(str).str.title().str.strip()
+
+    # Handle Date (Indian Format)
     df['Call_Date'] = pd.to_datetime(df['Call_Date'], dayfirst=True, errors='coerce').dt.date
-    df = df.dropna(subset=['Call_Date']) # Remove rows with invalid dates
+    df = df.dropna(subset=['Call_Date'])
 
     # Filter last 59 days
     fifty_nine_days_ago = (datetime.now(IST) - timedelta(days=59)).date()
@@ -57,28 +54,24 @@ def run_pipeline():
     # Convert Duration (Minutes to Seconds)
     df['call_duration'] = (pd.to_numeric(df['call_duration'], errors='coerce').fillna(0) * 60).astype(int)
     
-    # Clean Phone Numbers: Remove decimals, non-numeric chars (except +), and ensure string
+    # Clean Phone Numbers
     df['client_number'] = df['client_number'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
     
-    # Add metadata
     df['updated_at'] = datetime.now(IST)
 
     # 3. PUSH TO BIGQUERY
-    print(f"Loading {len(df)} rows to {TABLE_ID} (WRITE_TRUNCATE)...")
-    
+    print(f"Loading {len(df)} rows to BigQuery (WRITE_TRUNCATE)...")
     info = json.loads(os.environ.get("BQ_CREDENTIALS"))
     credentials = service_account.Credentials.from_service_account_info(info)
     client = bigquery.Client(credentials=credentials, project=PROJECT_ID)
 
-    job_config = bigquery.LoadJobConfig(
-        write_disposition="WRITE_TRUNCATE",
-    )
-
+    job_config = bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE")
     target_table = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
+    
     job = client.load_table_from_dataframe(df, target_table, job_config=job_config)
     job.result()
     
-    print("Pipeline executed successfully.")
+    print("Pipeline executed successfully with Proper Case formatting.")
 
 if __name__ == "__main__":
     run_pipeline()
