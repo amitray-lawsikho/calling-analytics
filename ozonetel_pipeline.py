@@ -66,7 +66,6 @@ def fetch_and_clean(target_date, team_map):
         # 3. Timezone Handling (IST to UTC)
         for col in ["StartTime", "EndTime"]:
             df[col] = pd.to_datetime(day_str + " " + df[col].astype(str), errors="coerce")
-            # Localize as IST then convert to UTC
             df[col] = df[col].dt.tz_localize(india, ambiguous='infer').dt.tz_convert("UTC")
 
         df["phone_number"] = df["E164"].astype(str).str[-10:]
@@ -80,7 +79,7 @@ def fetch_and_clean(target_date, team_map):
         status_col = "Status" if "Status" in df.columns else "DialStatus"
         df = df.rename(columns={status_col: "Status", skill_col: "Skill", "CampaignName": "campaignName"})
         
-        # 🔥 Filter: Remove Inbound Unanswered
+        # Filter: Remove Inbound Unanswered
         df = df[~((df["Type"] == "Inbound") & (df["Status"] == "Unanswered"))]
         
         return df[["CallDate","CallID","AgentName","Status","Disposition","StartTime","EndTime",
@@ -112,18 +111,18 @@ def run_pipeline():
         return
 
     # 6. Deduplication Strategy using TRIPLE KEY
-    # We fetch data starting from the earliest date we just pulled
-    query = f"SELECT CallID, StartTime, EndTime FROM `{TABLE_ID}` WHERE CallDate >= '{start_date}'"
+    # Standardize CallID for merging to prevent type mismatch during join
+    api_df["CallID"] = api_df["CallID"].astype(str)
+
+    query = f"SELECT CAST(CallID AS STRING) as CallID, StartTime, EndTime FROM `{TABLE_ID}` WHERE CallDate >= '{start_date}'"
     existing_bq = client.query(query).to_dataframe()
     
     if not existing_bq.empty:
-        # Standardize for comparison
         existing_bq['StartTime'] = pd.to_datetime(existing_bq['StartTime'], utc=True)
         existing_bq['EndTime'] = pd.to_datetime(existing_bq['EndTime'], utc=True)
         api_df['StartTime'] = pd.to_datetime(api_df['StartTime'], utc=True)
         api_df['EndTime'] = pd.to_datetime(api_df['EndTime'], utc=True)
         
-        # Triple Key Merge
         merged = api_df.merge(
             existing_bq, 
             on=["CallID", "StartTime", "EndTime"], 
@@ -137,12 +136,19 @@ def run_pipeline():
     # 7. Push to BigQuery
     if not final_to_push.empty:
         print(f"Pushing {len(final_to_push)} unique filtered records to BigQuery.")
+        
+        # MANDATORY: Final type casting to ensure PyArrow doesn't fail
+        final_to_push["CallID"] = final_to_push["CallID"].astype(str)
+        
         job_config = bigquery.LoadJobConfig(
             write_disposition="WRITE_APPEND",
             schema=[
+                bigquery.SchemaField("CallDate", "DATE"),
+                bigquery.SchemaField("CallID", "STRING"),
                 bigquery.SchemaField("StartTime", "TIMESTAMP"),
                 bigquery.SchemaField("EndTime", "TIMESTAMP"),
-                bigquery.SchemaField("CallDate", "DATE"),
+                bigquery.SchemaField("duration_sec", "INTEGER"),
+                bigquery.SchemaField("talktime_sec", "INTEGER"),
             ]
         )
         client.load_table_from_dataframe(final_to_push, TABLE_ID, job_config=job_config).result()
