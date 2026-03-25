@@ -1,0 +1,64 @@
+name: Calling Pipeline
+
+on:
+  workflow_dispatch: # Allows manual trigger only
+
+jobs:
+  run-calling-pipelines:
+    runs-on: ubuntu-latest
+
+    steps:
+    # ---------------- 1. CHECKOUT ----------------
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    # ---------------- 2. PYTHON SETUP ----------------
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    # ---------------- 3. CACHE DEPENDENCIES ----------------
+    # This block checks for an existing cache based on your requirements.txt
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    # ---------------- 4. INSTALL DEPENDENCIES ----------------
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    # ---------------- 5. GCP AUTHENTICATION ----------------
+    - name: Authenticate GCP
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: '${{ secrets.BQ_CREDENTIALS }}'
+
+    # ---------------- 6. RUN MANUAL CALLS PIPELINE ----------------
+    - name: Running Manual Calls Pipeline
+      run: python manual_calls_pipeline.py
+      env:
+        BQ_CREDENTIALS: ${{ secrets.BQ_CREDENTIALS }}
+
+    # ---------------- 7. RUN OZONETEL PIPELINE ----------------
+    - name: Running Ozonetel Pipeline
+      run: python ozonetel_pipeline.py
+      env:
+        BQ_CREDENTIALS: ${{ secrets.BQ_CREDENTIALS }}
+        OZONETEL_API_KEY: ${{ secrets.OZONETEL_API_KEY }}
+        OZONETEL_USERNAME: ${{ secrets.OZONETEL_USERNAME }}
+        TEAM_SHEET_URL: ${{ secrets.TEAM_SHEET_URL }}
+
+    # ---------------- 8. RUN ACEFONE PIPELINE ----------------
+    - name: Running Acefone Pipeline
+      run: python acefone_pipeline.py
+      env:
+        BQ_CREDENTIALS: ${{ secrets.BQ_CREDENTIALS }}
+        ACEFONE_API_KEY: ${{ secrets.ACEFONE_API_KEY }}
+        ACEFONE_ACCOUNT_ID: ${{ secrets.ACEFONE_ACCOUNT_ID }}
