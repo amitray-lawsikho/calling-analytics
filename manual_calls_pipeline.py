@@ -23,9 +23,11 @@ def run_pipeline():
     # 1. CLEAN HEADERS
     df.columns = df.columns.str.replace(r'\s+', ' ', regex=True).str.strip()
 
+    # Mapping including Timestamp for fallback
     mapping = {
+        'Timestamp': 'Timestamp',
         'Email address': 'Email',
-        'Date': 'Call_Date',
+        'Date': 'Manual_Date',
         'Slot Timing': 'Slot',
         'Counselor Name (Refer your LSQ name)': 'call_owner',
         'Duration of the call (for a single call only)': 'call_duration',
@@ -35,41 +37,37 @@ def run_pipeline():
         'Name of Submitted Manual lead': 'lead_name'
     }
     
-    if 'Date' not in df.columns:
-        print(f"Error: 'Date' column not found. Columns: {df.columns.tolist()}")
-        return
-
-    # Select existing columns and rename
     df = df[list(mapping.keys())].rename(columns=mapping)
 
     # 2. DATA TRANSFORMATION
-    # Proper Case (Handles blanks as "N/A" instead of dropping row)
+    # Proper Case for names
     for col in ['lead_name', 'call_owner']:
         df[col] = df[col].astype(str).str.title().replace(['Nan', 'None', ''], 'N/A').str.strip()
 
-    # DATE HANDLING: Robust conversion
-    # We use format='mixed' to handle cases where some rows might be different
-    df['Call_Date_Parsed'] = pd.to_datetime(df['Call_Date'], dayfirst=True, errors='coerce')
+    # --- NEW DATE LOGIC: Fallback to Timestamp ---
+    # Parse Manual_Date and Timestamp
+    df['Manual_Date_Dt'] = pd.to_datetime(df['Manual_Date'], dayfirst=True, errors='coerce')
+    df['Timestamp_Dt'] = pd.to_datetime(df['Timestamp'], dayfirst=True, errors='coerce')
+
+    # Use Manual_Date if available, otherwise use Timestamp date
+    df['Call_Date_Final'] = df['Manual_Date_Dt'].fillna(df['Timestamp_Dt'])
     
     # Calculate 59-day window
     today = datetime.now(IST).date()
     fifty_nine_days_ago = today - timedelta(days=59)
 
-    # FILTER: Filter based on the parsed date
-    # If a row fails to parse but you NEED it, this is where it gets lost.
-    # To fix the "47 vs 48" issue, we ensure we aren't filtering out today's data incorrectly.
-    mask = (df['Call_Date_Parsed'].dt.date >= fifty_nine_days_ago) & (df['Call_Date_Parsed'].dt.date <= today)
+    # Filter by the resolved date
+    mask = (df['Call_Date_Final'].dt.date >= fifty_nine_days_ago) & (df['Call_Date_Final'].dt.date <= today)
     df_filtered = df[mask].copy()
 
-    # Fallback: If one row was dropped, let's see why
-    if len(df_filtered) < 48 and today == datetime(2026, 3, 24).date():
-        print("Warning: Expected 48 rows for 24/03/2026 but filter caught fewer.")
+    # Assign final date for BigQuery
+    df_filtered['Call_Date'] = df_filtered['Call_Date_Final'].dt.date
+    
+    # Cleanup extra columns before upload
+    cols_to_drop = ['Timestamp', 'Manual_Date', 'Manual_Date_Dt', 'Timestamp_Dt', 'Call_Date_Final']
+    df_filtered = df_filtered.drop(columns=[c for c in cols_to_drop if c in df_filtered.columns])
 
-    # Re-assign the clean date
-    df_filtered['Call_Date'] = df_filtered['Call_Date_Parsed'].dt.date
-    df_filtered = df_filtered.drop(columns=['Call_Date_Parsed'])
-
-    # Minutes to Seconds (Ensures non-numeric durations become 0 instead of NaN)
+    # Minutes to Seconds
     df_filtered['call_duration'] = (pd.to_numeric(df_filtered['call_duration'], errors='coerce').fillna(0) * 60).astype(int)
     
     # Clean Phone Numbers
@@ -79,7 +77,7 @@ def run_pipeline():
 
     # 3. PUSH TO BIGQUERY
     if df_filtered.empty:
-        print("No rows found. Check if the 'Date' format in your sheet has changed.")
+        print("No rows found matching the date criteria.")
         return
 
     print(f"Loading {len(df_filtered)} rows to BigQuery...")
@@ -95,7 +93,7 @@ def run_pipeline():
         job = client.load_table_from_dataframe(df_filtered, target_table, job_config=job_config)
         job.result()
         
-        print(f"Successfully uploaded {len(df_filtered)} rows.")
+        print(f"Successfully uploaded {len(df_filtered)} rows. Verification: {len(df_filtered[df_filtered['Call_Date'] == datetime(2026,3,24).date()])} rows for 24/03.")
     except Exception as e:
         print(f"BigQuery Error: {e}")
 
