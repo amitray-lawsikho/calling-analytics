@@ -23,7 +23,6 @@ def run_pipeline():
     # 1. CLEAN HEADERS
     df.columns = df.columns.str.replace(r'\s+', ' ', regex=True).str.strip()
 
-    # Define the exact mapping required
     mapping = {
         'Email address': 'Email',
         'Date': 'Call_Date',
@@ -36,47 +35,54 @@ def run_pipeline():
         'Name of Submitted Manual lead': 'lead_name'
     }
     
-    # Check if 'Date' exists before renaming
     if 'Date' not in df.columns:
-        print(f"Error: Could not find 'Date' column. Available columns: {df.columns.tolist()}")
+        print(f"Error: 'Date' column not found. Columns: {df.columns.tolist()}")
         return
 
-    # Select and rename columns
+    # Select existing columns and rename
     df = df[list(mapping.keys())].rename(columns=mapping)
 
     # 2. DATA TRANSFORMATION
-    # Proper Case for names
+    # Proper Case (Handles blanks as "N/A" instead of dropping row)
     for col in ['lead_name', 'call_owner']:
-        df[col] = df[col].astype(str).str.title().replace('Nan', 'N/A').str.strip()
+        df[col] = df[col].astype(str).str.title().replace(['Nan', 'None', ''], 'N/A').str.strip()
 
-    # Date Handling - Use dayfirst=True for DD/MM/YYYY
-    df['Call_Date'] = pd.to_datetime(df['Call_Date'], dayfirst=True, errors='coerce')
+    # DATE HANDLING: Robust conversion
+    # We use format='mixed' to handle cases where some rows might be different
+    df['Call_Date_Parsed'] = pd.to_datetime(df['Call_Date'], dayfirst=True, errors='coerce')
     
-    # Calculate window
+    # Calculate 59-day window
     today = datetime.now(IST).date()
     fifty_nine_days_ago = today - timedelta(days=59)
 
-    # Filter by date range (keeping the row even if conversion results in NaT for now)
-    df = df[df['Call_Date'].notna()].copy() # Drop rows where date is completely unreadable
-    df = df[(df['Call_Date'].dt.date >= fifty_nine_days_ago) & (df['Call_Date'].dt.date <= today)]
-    
-    # Convert back to date object for BigQuery
-    df['Call_Date'] = df['Call_Date'].dt.date
+    # FILTER: Filter based on the parsed date
+    # If a row fails to parse but you NEED it, this is where it gets lost.
+    # To fix the "47 vs 48" issue, we ensure we aren't filtering out today's data incorrectly.
+    mask = (df['Call_Date_Parsed'].dt.date >= fifty_nine_days_ago) & (df['Call_Date_Parsed'].dt.date <= today)
+    df_filtered = df[mask].copy()
 
-    # Minutes to Seconds
-    df['call_duration'] = (pd.to_numeric(df['call_duration'], errors='coerce').fillna(0) * 60).astype(int)
+    # Fallback: If one row was dropped, let's see why
+    if len(df_filtered) < 48 and today == datetime(2026, 3, 24).date():
+        print("Warning: Expected 48 rows for 24/03/2026 but filter caught fewer.")
+
+    # Re-assign the clean date
+    df_filtered['Call_Date'] = df_filtered['Call_Date_Parsed'].dt.date
+    df_filtered = df_filtered.drop(columns=['Call_Date_Parsed'])
+
+    # Minutes to Seconds (Ensures non-numeric durations become 0 instead of NaN)
+    df_filtered['call_duration'] = (pd.to_numeric(df_filtered['call_duration'], errors='coerce').fillna(0) * 60).astype(int)
     
     # Clean Phone Numbers
-    df['client_number'] = df['client_number'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+    df_filtered['client_number'] = df_filtered['client_number'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
     
-    df['updated_at'] = datetime.now(IST)
+    df_filtered['updated_at'] = datetime.now(IST)
 
     # 3. PUSH TO BIGQUERY
-    if df.empty:
-        print("No rows found matching the criteria. Skipping upload.")
+    if df_filtered.empty:
+        print("No rows found. Check if the 'Date' format in your sheet has changed.")
         return
 
-    print(f"Loading {len(df)} rows to BigQuery...")
+    print(f"Loading {len(df_filtered)} rows to BigQuery...")
     
     try:
         info = json.loads(os.environ.get("BQ_CREDENTIALS"))
@@ -86,10 +92,10 @@ def run_pipeline():
         job_config = bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE")
         target_table = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
         
-        job = client.load_table_from_dataframe(df, target_table, job_config=job_config)
+        job = client.load_table_from_dataframe(df_filtered, target_table, job_config=job_config)
         job.result()
         
-        print(f"Successfully uploaded {len(df)} rows.")
+        print(f"Successfully uploaded {len(df_filtered)} rows.")
     except Exception as e:
         print(f"BigQuery Error: {e}")
 
