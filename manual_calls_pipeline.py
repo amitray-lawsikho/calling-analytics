@@ -23,7 +23,6 @@ def run_pipeline():
     # 1. CLEAN HEADERS
     df.columns = df.columns.str.replace(r'\s+', ' ', regex=True).str.strip()
 
-    # Mapping including Timestamp for fallback
     mapping = {
         'Timestamp': 'Timestamp',
         'Email address': 'Email',
@@ -40,32 +39,23 @@ def run_pipeline():
     df = df[list(mapping.keys())].rename(columns=mapping)
 
     # 2. DATA TRANSFORMATION
-    # Proper Case for names
     for col in ['lead_name', 'call_owner']:
         df[col] = df[col].astype(str).str.title().replace(['Nan', 'None', ''], 'N/A').str.strip()
 
-    # --- NEW DATE LOGIC: Fallback to Timestamp ---
-    # Parse Manual_Date and Timestamp
-    df['Manual_Date_Dt'] = pd.to_datetime(df['Manual_Date'], dayfirst=True, errors='coerce')
+    # --- TIMEZONE-SAFE DATE LOGIC ---
+    # 1. Parse Timestamp as IST directly
     df['Timestamp_Dt'] = pd.to_datetime(df['Timestamp'], dayfirst=True, errors='coerce')
+    # 2. Parse Manual_Date
+    df['Manual_Date_Dt'] = pd.to_datetime(df['Manual_Date'], dayfirst=True, errors='coerce')
 
-    # Use Manual_Date if available, otherwise use Timestamp date
-    df['Call_Date_Final'] = df['Manual_Date_Dt'].fillna(df['Timestamp_Dt'])
-    
-    # Calculate 59-day window
+    # 3. Resolve Final Date: Use Manual Date if valid, else Timestamp
+    # We ensure we take ONLY the .date() part to avoid UTC shifting in BigQuery
+    df['Call_Date'] = df['Manual_Date_Dt'].fillna(df['Timestamp_Dt']).dt.date
+
+    # 4. Filter last 59 days
     today = datetime.now(IST).date()
     fifty_nine_days_ago = today - timedelta(days=59)
-
-    # Filter by the resolved date
-    mask = (df['Call_Date_Final'].dt.date >= fifty_nine_days_ago) & (df['Call_Date_Final'].dt.date <= today)
-    df_filtered = df[mask].copy()
-
-    # Assign final date for BigQuery
-    df_filtered['Call_Date'] = df_filtered['Call_Date_Final'].dt.date
-    
-    # Cleanup extra columns before upload
-    cols_to_drop = ['Timestamp', 'Manual_Date', 'Manual_Date_Dt', 'Timestamp_Dt', 'Call_Date_Final']
-    df_filtered = df_filtered.drop(columns=[c for c in cols_to_drop if c in df_filtered.columns])
+    df_filtered = df[(df['Call_Date'] >= fifty_nine_days_ago) & (df['Call_Date'] <= today)].copy()
 
     # Minutes to Seconds
     df_filtered['call_duration'] = (pd.to_numeric(df_filtered['call_duration'], errors='coerce').fillna(0) * 60).astype(int)
@@ -73,11 +63,16 @@ def run_pipeline():
     # Clean Phone Numbers
     df_filtered['client_number'] = df_filtered['client_number'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
     
+    # updated_at should be IST
     df_filtered['updated_at'] = datetime.now(IST)
+
+    # Cleanup extra technical columns
+    final_cols = ['Email', 'Call_Date', 'Slot', 'call_owner', 'call_duration', 'client_number', 'Drive_Link', 'Approved_By', 'lead_name', 'updated_at']
+    df_filtered = df_filtered[final_cols]
 
     # 3. PUSH TO BIGQUERY
     if df_filtered.empty:
-        print("No rows found matching the date criteria.")
+        print("No rows found.")
         return
 
     print(f"Loading {len(df_filtered)} rows to BigQuery...")
@@ -87,13 +82,17 @@ def run_pipeline():
         credentials = service_account.Credentials.from_service_account_info(info)
         client = bigquery.Client(credentials=credentials, project=PROJECT_ID)
 
+        # WRITE_TRUNCATE ensures we don't have duplicates
         job_config = bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE")
         target_table = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
         
         job = client.load_table_from_dataframe(df_filtered, target_table, job_config=job_config)
         job.result()
         
-        print(f"Successfully uploaded {len(df_filtered)} rows. Verification: {len(df_filtered[df_filtered['Call_Date'] == datetime(2026,3,24).date()])} rows for 24/03.")
+        # Log counts specifically for 24/03 to verify
+        count_24 = len(df_filtered[df_filtered['Call_Date'] == datetime(2026, 3, 24).date()])
+        print(f"Successfully uploaded {len(df_filtered)} total rows. (Count for 24/03: {count_24})")
+        
     except Exception as e:
         print(f"BigQuery Error: {e}")
 
