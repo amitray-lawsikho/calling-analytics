@@ -20,9 +20,10 @@ def run_pipeline():
     response = requests.get(CSV_URL)
     df = pd.read_csv(io.StringIO(response.text))
 
-    # 1. CLEAN HEADERS (Handles hidden newlines/spaces)
+    # 1. CLEAN HEADERS
     df.columns = df.columns.str.replace(r'\s+', ' ', regex=True).str.strip()
 
+    # Define the exact mapping required
     mapping = {
         'Email address': 'Email',
         'Date': 'Call_Date',
@@ -35,51 +36,49 @@ def run_pipeline():
         'Name of Submitted Manual lead': 'lead_name'
     }
     
-    # Select columns that exist, ignore missing ones to prevent crash
-    existing_cols = [col for col in mapping.keys() if col in df.columns]
-    df = df[existing_cols].rename(columns=mapping)
+    # Check if 'Date' exists before renaming
+    if 'Date' not in df.columns:
+        print(f"Error: Could not find 'Date' column. Available columns: {df.columns.tolist()}")
+        return
 
-    # 2. DATA TRANSFORMATION (FORGIVING LOGIC)
-    # Proper Case for names, but handle non-string values safely
+    # Select and rename columns
+    df = df[list(mapping.keys())].rename(columns=mapping)
+
+    # 2. DATA TRANSFORMATION
+    # Proper Case for names
     for col in ['lead_name', 'call_owner']:
-        if col in df.columns:
-            df[col] = df[col].astype(str).str.title().str.replace('Nan', 'N/A').str.strip()
+        df[col] = df[col].astype(str).str.title().replace('Nan', 'N/A').str.strip()
 
-    # DATE HANDLING: Convert and keep even if imperfect
-    # We use dayfirst=True to handle the DD/MM/YYYY format of your sheet
-    df['Call_Date_Converted'] = pd.to_datetime(df['Call_Date'], dayfirst=True, errors='coerce')
+    # Date Handling - Use dayfirst=True for DD/MM/YYYY
+    df['Call_Date'] = pd.to_datetime(df['Call_Date'], dayfirst=True, errors='coerce')
     
-    # Calculate the 59-day window
+    # Calculate window
     today = datetime.now(IST).date()
     fifty_nine_days_ago = today - timedelta(days=59)
 
-    # FILTER: Filter based on the converted date, but don't drop NaT until the very end
-    # This ensures rows with weird characters in the date column aren't lost if they can be parsed
-    mask = (df['Call_Date_Converted'].dt.date >= fifty_nine_days_ago) & (df['Call_Date_Converted'].dt.date <= today)
-    df = df[mask].copy()
+    # Filter by date range (keeping the row even if conversion results in NaT for now)
+    df = df[df['Call_Date'].notna()].copy() # Drop rows where date is completely unreadable
+    df = df[(df['Call_Date'].dt.date >= fifty_nine_days_ago) & (df['Call_Date'].dt.date <= today)]
     
-    # Convert the column back to the format BigQuery expects (YYYY-MM-DD)
-    df['Call_Date'] = df['Call_Date_Converted'].dt.date
-    df = df.drop(columns=['Call_Date_Converted'])
+    # Convert back to date object for BigQuery
+    df['Call_Date'] = df['Call_Date'].dt.date
 
-    # Convert Duration (Minutes to Seconds) - fill errors with 0 instead of dropping row
+    # Minutes to Seconds
     df['call_duration'] = (pd.to_numeric(df['call_duration'], errors='coerce').fillna(0) * 60).astype(int)
     
     # Clean Phone Numbers
     df['client_number'] = df['client_number'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
     
-    # Set the update timestamp
     df['updated_at'] = datetime.now(IST)
 
     # 3. PUSH TO BIGQUERY
     if df.empty:
-        print("No valid data found within the date range.")
+        print("No rows found matching the criteria. Skipping upload.")
         return
 
-    print(f"Loading {len(df)} rows to BigQuery (WRITE_TRUNCATE)...")
+    print(f"Loading {len(df)} rows to BigQuery...")
     
     try:
-        # Load credentials from Environment Variable
         info = json.loads(os.environ.get("BQ_CREDENTIALS"))
         credentials = service_account.Credentials.from_service_account_info(info)
         client = bigquery.Client(credentials=credentials, project=PROJECT_ID)
@@ -90,9 +89,9 @@ def run_pipeline():
         job = client.load_table_from_dataframe(df, target_table, job_config=job_config)
         job.result()
         
-        print("Pipeline executed successfully. All valid rows uploaded.")
+        print(f"Successfully uploaded {len(df)} rows.")
     except Exception as e:
-        print(f"Error during BigQuery upload: {e}")
+        print(f"BigQuery Error: {e}")
 
 if __name__ == "__main__":
     run_pipeline()
