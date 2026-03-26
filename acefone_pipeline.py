@@ -43,7 +43,6 @@ def get_last_call_time():
         if last_time_utc.tzinfo is None:
             last_time_utc = pytz.utc.localize(last_time_utc)
 
-        # Look back 30 mins from last record to catch any late API arrivals
         return last_time_utc.astimezone(india) - timedelta(minutes=30)
 
     except Exception as e:
@@ -58,7 +57,7 @@ def fetch_acefone(last_time_ist):
         "accountid": ACCOUNT_ID
     }
 
-    # SET THE 5-MINUTE LAG HERE
+    # Apply 5-minute lag for accurate durations
     batch_now_utc = datetime.now(pytz.utc)
     fetch_to_ist = datetime.now(india) - timedelta(minutes=5)
     
@@ -91,7 +90,8 @@ def fetch_acefone(last_time_ist):
 
         for call in data:
             dt_raw = pd.to_datetime(call.get("end_stamp"), errors="coerce")
-            if pd.isna(dt_raw): continue
+            if pd.isna(dt_raw):
+                continue
 
             dt_ist = india.localize(dt_raw)
 
@@ -108,6 +108,7 @@ def fetch_acefone(last_time_ist):
                         agent = flow.get("name")
                         break
 
+            # Clean Agent Name
             clean_owner = str(agent or "").replace("-Extension", "").strip()
 
             rows.append({
@@ -123,7 +124,7 @@ def fetch_acefone(last_time_ist):
                 "call_type": (call.get("dialer_call_details") or {}).get("call_type"),
                 "source": "Acefone",
                 "updated_at": batch_now_utc,
-                "updated_at_ampm": fetch_to_ist.strftime("%d/%m/%Y %I:%M %p"), # Logs the "To" time
+                "updated_at_ampm": fetch_to_ist.strftime("%d/%m/%Y %I:%M %p"),
                 "Call Date": dt_ist.date() 
             })
 
@@ -132,6 +133,7 @@ def fetch_acefone(last_time_ist):
         if page > 50: break
 
     return pd.DataFrame(rows), last_time_ist
+
 # ---------------- LOAD & LOG ----------------
 
 def load_to_bigquery(df):
@@ -160,20 +162,18 @@ def log_pipeline(pipeline_name, rows):
         "rows_inserted": int(rows)
     }]
     client.load_table_from_dataframe(pd.DataFrame(log_data), LOG_TABLE).result()
+
 # ---------------- MAIN ----------------
 
 def run_pipeline():
-    # 1. Get Start Time
     last_time_ist = get_last_call_time()
-
-    # 2. Fetch with 5-minute lag
     ace_df, start_range = fetch_acefone(last_time_ist)
     
     if ace_df.empty:
         log_pipeline("ACEFONE", 0)
         return
 
-    # 3. Apply Filters
+    # Filter for dashboard accuracy
     ace_df = ace_df[
         (ace_df["direction"] == "outbound") | 
         ((ace_df["direction"] == "inbound") & (ace_df["status"].str.lower() == "answered"))
@@ -183,8 +183,7 @@ def run_pipeline():
         log_pipeline("ACEFONE", 0)
         return
 
-    # 4. Deduplicate against existing BQ data
-    # (Since DML is off, we must NOT insert anything that already exists)
+    # Deduplication
     start_ts_query = start_range.astimezone(pytz.utc).strftime('%Y-%m-%d %H:%M:%S')
     query_bq = f"SELECT call_id FROM `{TABLE_ID}` WHERE call_datetime >= TIMESTAMP('{start_ts_query}') AND source = 'Acefone'"
     
@@ -195,14 +194,12 @@ def run_pipeline():
     
     new_records = ace_df[~ace_df["call_id"].isin(bq_ids)]
 
-    # 5. Load
     if not new_records.empty:
         load_to_bigquery(new_records)
         log_pipeline("ACEFONE", len(new_records))
     else:
         print("No new unique records found.")
         log_pipeline("ACEFONE", 0)
-
 
 if __name__ == "__main__":
     run_pipeline()
