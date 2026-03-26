@@ -132,7 +132,34 @@ def fetch_acefone(last_time_ist):
         if page > 50: break
 
     return pd.DataFrame(rows), last_time_ist
+# ---------------- LOAD & LOG ----------------
 
+def load_to_bigquery(df):
+    if df.empty: return
+    
+    df = df.sort_values("call_datetime", ascending=False)
+    df = df.drop_duplicates(subset=["call_id"], keep="first")
+
+    df["call_datetime"] = pd.to_datetime(df["call_datetime"], utc=True)
+    df["updated_at"] = pd.to_datetime(df["updated_at"], utc=True)
+    df["call_duration"] = pd.to_numeric(df["call_duration"], errors="coerce").fillna(0).astype(int)
+
+    for col in df.columns:
+        if df[col].dtype == "object" and col not in ["updated_at", "call_datetime", "Call Date"]:
+            df[col] = df[col].astype(str)
+
+    job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
+    client.load_table_from_dataframe(df, TABLE_ID, job_config=job_config).result()
+
+def log_pipeline(pipeline_name, rows):
+    ist_now = datetime.now(india)
+    log_data = [{
+        "run_date": ist_now.date(),
+        "pipeline_name": pipeline_name,
+        "run_timestamp": ist_now.strftime("%d/%m/%Y %I:%M %p"),
+        "rows_inserted": int(rows)
+    }]
+    client.load_table_from_dataframe(pd.DataFrame(log_data), LOG_TABLE).result()
 # ---------------- MAIN ----------------
 
 def run_pipeline():
