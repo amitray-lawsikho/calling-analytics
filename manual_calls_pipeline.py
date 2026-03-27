@@ -29,7 +29,7 @@ def run_pipeline():
         'Date': 'Manual_Date',
         'Slot Timing': 'Slot',
         'Counselor Name (Refer your LSQ name)': 'call_owner',
-        'Duration of the call in minutes(for a single call only)': 'call_duration', # 👈 THIS IS THE FIXED LINE
+        'Duration of the call in minutes(for a single call only)': 'call_duration',
         'Phone Number of Submitted Manual (Numbers will be audited kindly provide accurate details)': 'client_number',
         'Google Drive Link of added calls and screenshots (Please give access of the drive)*': 'Drive_Link',
         'Approved By': 'Approved_By',
@@ -49,7 +49,6 @@ def run_pipeline():
     df['Manual_Date_Dt'] = pd.to_datetime(df['Manual_Date'], dayfirst=True, errors='coerce')
 
     # 3. Resolve Final Date: Use Manual Date if valid, else Timestamp
-    # We ensure we take ONLY the .date() part to avoid UTC shifting in BigQuery
     df['Call_Date'] = df['Manual_Date_Dt'].fillna(df['Timestamp_Dt']).dt.date
 
     # 4. Filter last 59 days
