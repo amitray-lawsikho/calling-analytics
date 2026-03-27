@@ -29,7 +29,7 @@ def run_pipeline():
         'Date': 'Manual_Date',
         'Slot Timing': 'Slot',
         'Counselor Name (Refer your LSQ name)': 'call_owner',
-        'Duration of the call  in minutes(for a single call only)': 'call_duration',
+        'Duration of the call in minutes(for a single call only)': 'call_duration', # 👈 THIS IS THE FIXED LINE
         'Phone Number of Submitted Manual (Numbers will be audited kindly provide accurate details)': 'client_number',
         'Google Drive Link of added calls and screenshots (Please give access of the drive)*': 'Drive_Link',
         'Approved By': 'Approved_By',
