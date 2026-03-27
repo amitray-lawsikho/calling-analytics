@@ -1,180 +1,26 @@
-🚀 Overview
+# 🚀 Revenue BigQuery ELT Pipeline
 
-This repository contains a production-grade ELT pipeline system that ingests CRM and call data from multiple sources into Google BigQuery for analytics and dashboarding.
+This repository contains a **production-grade ELT pipeline system** designed to ingest CRM and telephony data into Google BigQuery. It enables real-time analytics and automated dashboarding by bridging the gap between third-party APIs and BigQuery.
 
-🔌 Data Sources
-📞 Acefone (Call Data)
-📲 Ozonetel (Call Data)
-👥 LeadSquared (Leads CRM)
-📝 Google Sheets (Manual Calls)
-💰 Google Sheets (Revenue Data)
-🏗️ Architecture
-        APIs / Sheets
-             │
-        (Extract)
-             │
-        Data Cleaning
-        Transformation
-             │
-        Deduplication
-             │
-        BigQuery Tables
-             │
-        Dashboard / BI
-⚙️ Core Features
-✅ Incremental Processing
-Fetches only new data
-Uses:
-MAX(timestamp) (Acefone)
-Rolling window (59 days)
-⏱️ Timezone Handling
-Input: IST (Asia/Kolkata)
-Storage: UTC (BigQuery)
-Ensures dashboard consistency
-⏳ Lag Buffer (Critical)
-5-minute delay before fetching latest data
-Prevents:
-Partial call records
-Incorrect durations
-🔁 Deduplication Strategy
-Pipeline	Deduplication Logic
-Acefone	call_id
-Ozonetel	CallID + StartTime + EndTime
-LeadSquared	ProspectID
-Sheets	Full refresh
-📋 Central Logging
+---
 
-All pipelines log into:
+## 🔌 Data Sources
 
-crm_scheduled_results.MASTER_QUERY_REFRESH
-Field	Description
-run_date	Execution date
-pipeline_name	Source name
-run_timestamp	IST timestamp
-rows_inserted	Rows processed
-📞 Pipelines
-1️⃣ Acefone Pipeline
+The system orchestrates data from five primary sources:
+* **Telephony:** Acefone & Ozonetel (Call logs/recordings)
+* **CRM:** LeadSquared (Prospects & Activities)
+* **Manual Inputs:** Google Sheets (Manual calls & Revenue targets)
 
-Purpose: Fetch call records from Acefone API
+---
 
-🔹 Key Logic
+## 🏗️ Architecture
 
-Incremental load using:
-
-MAX(call_datetime)
-30-minute backward buffer
-5-minute lag buffer
-🔹 Filters
-✅ Outbound calls
-✅ Inbound (answered only)
-2️⃣ LeadSquared Pipeline
-
-Purpose: Fetch leads & updates
-
-🔹 Key Logic
-Last 59 days data
-Owner ID → Name mapping
-Retry mechanism for API failures
-🔹 Load Type
-WRITE_TRUNCATE
-3️⃣ Ozonetel Pipeline
-
-Purpose: Fetch call data (day-wise)
-
-🔹 Key Logic
-Iterates day-by-day
-Applies 5-min lag for current day
-Filters team-specific agents
-🔹 Deduplication (Strong)
-CallID + StartTime + EndTime
-🔹 Filters
-❌ Removes inbound unanswered calls
-4️⃣ Manual Calls Pipeline (Google Sheets)
-
-Purpose: Capture manually logged calls
-
-🔹 Key Logic
-Smart date selection:
-Manual Date (preferred)
-Timestamp fallback
-Converts minutes → seconds
-Filters last 59 days
-🔹 Load Type
-WRITE_TRUNCATE
-5️⃣ Revenue Pipeline (Google Sheets)
-
-Purpose: Load revenue data
-
-🔹 Transformations
-Clean numeric values
-Normalize phone numbers
-Create:
-Rev_Month
-🔹 Filters
-Last 59 days only
-🔹 Load Type
-WRITE_TRUNCATE
-🧩 Common Utilities
-🔹 Logging Function
-log_pipeline(pipeline_name, rows)
-🔹 Time Strategy
-Business logic → IST
-Storage → UTC
-📦 Requirements
-pandas
-pytz
-google-cloud-bigquery
-google-api-python-client
-google-auth
-pyarrow
-requests
-db-dtypes
-pandas-gbq
-🔐 Environment Variables
-Acefone
-ACEFONE_API_KEY=
-ACEFONE_ACCOUNT_ID=
-LeadSquared
-LSQ_ACCESS_KEY=
-LSQ_SECRET_KEY=
-BigQuery
-BQ_CREDENTIALS=<JSON STRING>
-▶️ Running Pipelines
-
-Run any pipeline individually:
-
-python acefone_pipeline.py
-python lsq_pipeline.py
-python ozonetel_pipeline.py
-python manual_calls.py
-python revenue_pipeline.py
-📅 Scheduling
-
-Recommended schedulers:
-
-⏰ GitHub Actions
-🕒 Cron Jobs
-🌬️ Apache Airflow (for scaling)
-📊 Data Freshness Strategy
-Source	Strategy
-Acefone	Incremental + Lag
-Ozonetel	Incremental (daily loop)
-LSQ	Rolling 59 days
-Sheets	Full refresh
-⚠️ Best Practices
-Always maintain 5-minute lag
-Never remove deduplication logic
-Keep timezone handling consistent
-Use WRITE_TRUNCATE only where intended
-🏁 Summary
-
-✔️ Reliable ingestion
-✔️ No duplicate data
-✔️ Optimized for dashboards
-✔️ Scalable architecture
-
-👨‍💻 Author
-
-Amit Ray
-
-⭐ If this helped, consider giving the repo a star!
+```mermaid
+graph TD
+    A[APIs / Google Sheets] --> B{Data Extraction}
+    B --> C[Data Transformation]
+    C --> D[Deduplication Engine]
+    D --> E[(BigQuery Tables)]
+    E --> F[Dashboards / BI]
+⚙️ Core Concepts🔄 Incremental ProcessingTo optimize performance and cost, we avoid full refreshes where possible:Acefone: Fetches based on MAX(call_datetime).Ozonetel: Date-wise incremental processing.LSQ: Uses a 59-day rolling window to capture updates to existing leads.⏱️ Timezone & Lag HandlingProcessing: All logic runs in IST (Asia/Kolkata).Storage: BigQuery tables are stored in UTC for global compatibility.Lag Buffer: A mandatory 5-minute delay is applied before fetching the latest data to ensure call durations are finalized by the provider.🔁 Deduplication StrategyPipelineLogic / Primary KeyAcefonecall_idOzonetelCallID + StartTime + EndTimeLSQProspectIDSheetsFull Refresh (WRITE_TRUNCATE)📋 Logging & ObservabilityAll pipeline executions are logged into a master audit table:crm_scheduled_results.MASTER_QUERY_REFRESHTracked Fields:run_date | pipeline_name | run_timestamp | rows_inserted📞 Pipeline Deep Dive1. Acefone PipelineLogic: Incremental with a 30-minute backward "overlap" buffer to catch edge cases.Filters: Includes all Outbound calls and Answered Inbound calls.2. LeadSquared (LSQ) PipelineLogic: 59-day rolling window using ModifiedOn.Features: Automated Owner ID-to-Name mapping and API retry logic.Load Type: WRITE_TRUNCATE (on the windowed subset).3. Ozonetel PipelineLogic: Iterates day-by-day; filters for specific team agents to reduce noise.⚡ Automation (GitHub Actions)The pipelines are fully automated. Every workflow follows a standardized execution path:Checkout ➔ Setup Python ➔ Auth GCP ➔ Run Script📂 Scheduled WorkflowsWorkflowSchedule (IST)PurposeMaster Pipeline11:00, 13:30, 17:30, 19:30 (Mon-Fri)Production Run: Syncs all data sources.Manual Calls07:30 DailySyncs manual logs from Google Sheets.Ad-hocManual TriggerIndividual pipelines (Acefone, LSQ, etc.) can be run manually.🔐 ConfigurationSecrets RequiredThe following secrets must be configured in GitHub Settings > Secrets:BQ_CREDENTIALS (JSON Service Account)ACEFONE_API_KEY, OZONETEL_API_KEY, LSQ_SECRET_KEYTEAM_SHEET_URL📦 InstallationBashpip install -r requirements.txt
+⚠️ Best PracticesIST Consistency: Always perform date math in IST before converting to UTC for storage.Lag Buffer: Never reduce the 5-minute lag; doing so results in "0 second" call duration errors.Deduplication: Ensure the deduplication step runs before the final BigQuery load.Author: Amit Ray⭐ Star this repo if it helped your ETL workflow!
