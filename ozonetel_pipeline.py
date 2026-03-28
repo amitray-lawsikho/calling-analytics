@@ -14,7 +14,7 @@ from google.oauth2 import service_account
 # ─────────────────────────────────────────────
 # CONFIGURATION
 # ─────────────────────────────────────────────
-
+API_URL  = "https://in1-ccaas-api.ozonetel.com/ca_reports/getCDRDefaultByPagination"
 API_KEY        = os.environ.get("OZONETEL_API_KEY")
 USERNAME       = os.environ.get("OZONETEL_USERNAME")
 TEAM_SHEET_URL = os.environ.get("TEAM_SHEET_URL")
