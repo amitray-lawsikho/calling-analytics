@@ -448,6 +448,12 @@ def run_pipeline():
         to_push = final_df
         print(f"🔍 No existing records from {start_date} → pushing all {len(to_push)}")
 
+    # ── Sanitise mixed-type columns before push ──
+    # Rating and similar fields can be float/string mixed — force all object cols to str
+    for col in to_push.columns:
+        if to_push[col].dtype == object:
+            to_push[col] = to_push[col].astype(str).replace("nan", "").replace("<NA>", "")
+
     # ── Push to BigQuery ──
     if not to_push.empty:
         job_config = bigquery.LoadJobConfig(
