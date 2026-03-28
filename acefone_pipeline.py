@@ -178,7 +178,7 @@ def run_pipeline():
         (ace_df["direction"] == "outbound") | 
         ((ace_df["direction"] == "inbound") & (ace_df["status"].str.lower() == "answered"))
     ]
-
+    ace_df = ace_df[~((ace_df["status"].str.lower() == "answered") & (ace_df["call_duration"] == 0))]
     if ace_df.empty:
         log_pipeline("ACEFONE", 0)
         return
