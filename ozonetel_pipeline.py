@@ -15,9 +15,19 @@ from google.oauth2 import service_account
 # CONFIGURATION
 # ─────────────────────────────────────────────
 
-API_URL  = "https://in1-ccaas-api.ozonetel.com/ca_reports/getCDRDefaultByPagination"
-API_KEY  = os.environ.get("OZONETEL_API_KEY")
-USERNAME = os.environ.get("OZONETEL_USERNAME")
+API_KEY        = os.environ.get("OZONETEL_API_KEY")
+USERNAME       = os.environ.get("OZONETEL_USERNAME")
+TEAM_SHEET_URL = os.environ.get("TEAM_SHEET_URL")
+
+# ── Fail fast if secrets missing ──
+if not API_KEY:
+    raise ValueError("OZONETEL_API_KEY secret not found in environment")
+if not USERNAME:
+    raise ValueError("OZONETEL_USERNAME secret not found in environment")
+if not TEAM_SHEET_URL:
+    raise ValueError("TEAM_SHEET_URL secret not found in environment")
+
+print(f"✅ Credentials loaded — USERNAME: {USERNAME} | API_KEY: {API_KEY[:6]}...")
 
 PROJECT_ID = "studious-apex-488820-c3"
 DATASET_ID = "crm_dashboard"
