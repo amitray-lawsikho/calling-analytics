@@ -460,38 +460,57 @@ def run_pipeline():
             to_push[col] = to_push[col].replace({"nan": "", "<NA>": "", "None": ""})
 
     # ── Re-enforce CallDate as proper Python date after merge ──
-    to_push["CallDate"] = pd.to_datetime(to_push["CallDate"]).dt.date
-    seen_lower = {}
-    cols_to_keep = []
-    for col in to_push.columns:
-        key = col.lower()
-        if key not in seen_lower:
-            seen_lower[key] = col
-            cols_to_keep.append(col)
-    to_push = to_push[cols_to_keep]
+     to_push["CallDate"] = pd.to_datetime(to_push["CallDate"]).dt.date
 
-    # ── Normalize all column names to lowercase for BigQuery consistency ──
-    to_push.columns = [c.lower() for c in to_push.columns]
+    # ── Map CampaignName → campaignName to match Colab schema ──
+    if "CampaignName" in to_push.columns and "campaignName" not in to_push.columns:
+        to_push["campaignName"] = to_push["CampaignName"]
 
-    # ── Restore the exact BQ schema column names that need specific casing ──
-    rename_back = {
-        "starttime"       : "StartTime",
-        "endtime"         : "EndTime",
-        "calldate"        : "CallDate",
-        "callid"          : "CallID",
-        "agentname"       : "AgentName",
-        "updated_at_utc"  : "updated_at_utc",
-        "updated_at_ampm" : "updated_at_ampm",
-    }
-    to_push = to_push.rename(columns=rename_back)
+    # ── Extract phone_number from E164 if not already set ──
+    if "phone_number" not in to_push.columns and "E164" in to_push.columns:
+        to_push["phone_number"] = to_push["E164"].astype(str).str[-10:]
+
+    # ── Add Source column ──
+    to_push["source"] = "Ozonetel"
+
+    # ── STRICT COLUMN WHITELIST — must match BQ table schema exactly ──
+    # This is what the Colab backfill pushes. Only these columns exist in BQ.
+    BQ_COLUMNS = [
+        "CallDate",        # DATE
+        "CallID",          # STRING
+        "AgentName",       # STRING
+        "Status",          # STRING
+        "Disposition",     # STRING
+        "StartTime",       # TIMESTAMP
+        "EndTime",         # TIMESTAMP
+        "duration_sec",    # INTEGER
+        "talktime_sec",    # INTEGER
+        "Skill",           # STRING
+        "Type",            # STRING
+        "campaignName",    # STRING
+        "phone_number",    # STRING
+        "updated_at_ampm", # STRING
+        "updated_at_utc",  # TIMESTAMP
+        "source",          # STRING
+    ]
+
+    # Only keep columns that both exist in whitelist AND in the dataframe
+    final_cols = [c for c in BQ_COLUMNS if c in to_push.columns]
+    to_push = to_push[final_cols]
+
+    print(f"\n📋 Pushing columns: {final_cols}")
+
     # ── Push to BigQuery ──
     if not to_push.empty:
         job_config = bigquery.LoadJobConfig(
             write_disposition="WRITE_APPEND",
             schema=[
-                bigquery.SchemaField("StartTime", "TIMESTAMP"),
-                bigquery.SchemaField("EndTime",   "TIMESTAMP"),
-                bigquery.SchemaField("CallDate",  "DATE"),
+                bigquery.SchemaField("StartTime",      "TIMESTAMP"),
+                bigquery.SchemaField("EndTime",        "TIMESTAMP"),
+                bigquery.SchemaField("CallDate",       "DATE"),
+                bigquery.SchemaField("updated_at_utc", "TIMESTAMP"),
+                bigquery.SchemaField("duration_sec",   "INTEGER"),
+                bigquery.SchemaField("talktime_sec",   "INTEGER"),
             ]
         )
         try:
