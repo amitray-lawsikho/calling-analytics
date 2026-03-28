@@ -1,3 +1,92 @@
+import requests
+import os
+import pandas as pd
+import pytz
+import time
+from datetime import datetime, timedelta
+from google.cloud import bigquery
+
+# ================= CONFIG =================
+PROJECT_ID = "studious-apex-488820-c3"
+DATASET = "crm_dashboard"
+TABLE = "ozonetel_calls"
+TABLE_ID = f"{PROJECT_ID}.{DATASET}.{TABLE}"
+
+API_URL = "https://in1-ccaas-api.ozonetel.com/ca_reports/fetchCDRDetails"
+API_KEY = os.getenv("OZONETEL_API_KEY") 
+USERNAME = os.getenv("OZONETEL_USERNAME")
+TEAM_SHEET_URL = os.getenv("TEAM_SHEET_URL")
+
+client = bigquery.Client()
+india = pytz.timezone("Asia/Kolkata")
+
+# ================= HELPERS =================
+def get_last_date_from_bq():
+    """Finds the most recent date in BQ. If empty, looks back 7 days."""
+    try:
+        query = f"SELECT MAX(CallDate) as last_date FROM `{TABLE_ID}`"
+        df = client.query(query).to_dataframe()
+        last_date = df.iloc[0]['last_date']
+        if pd.isna(last_date):
+            return (datetime.now(india) - timedelta(days=7)).date()
+        return last_date
+    except:
+        return (datetime.now(india) - timedelta(days=2)).date()
+
+def time_to_seconds(t):
+    try:
+        h, m, s = map(int, str(t).split(":"))
+        return h*3600 + m*60 + s
+    except:
+        return 0
+
+def process_day_data(details, team_agents_clean):
+    """Processes API details exactly like the Colab process_df function."""
+    df = pd.DataFrame(details)
+    if df.empty: return pd.DataFrame()
+    
+    # 1. Agent Filter (Mirroring Backfill)
+    df["AgentName"] = df["AgentName"].astype(str).str.strip()
+    # Case-insensitive agent check for better reliability
+    df["AgentName_Lower"] = df["AgentName"].str.lower()
+    team_agents_lower = [x.lower() for x in team_agents_clean]
+    df = df[df["AgentName_Lower"].isin(team_agents_lower)].copy()
+    
+    if df.empty: return pd.DataFrame()
+
+    # 2. Add derived fields
+    df["duration_sec"] = df["Duration"].apply(time_to_seconds)
+    df["talktime_sec"] = df["TalkTime"].apply(time_to_seconds)
+    df["phone_number"] = df["E164"].astype(str).str[-10:]
+    df["Source"] = "Ozonetel"
+
+    # 3. Dynamic Column Mapping
+    skill_col = "Skill" if "Skill" in df.columns else "skillName"
+    status_col = "Status" if "Status" in df.columns else "DialStatus"
+
+    final_columns = {
+        "CallID": "CallID",
+        "AgentName": "AgentName",
+        status_col: "Status",
+        "Disposition": "Disposition",
+        "StartTime": "StartTime",
+        "EndTime": "EndTime",
+        "duration_sec": "duration_sec",
+        "talktime_sec": "talktime_sec",
+        skill_col: "Skill",
+        "Type": "Type",
+        "CampaignName": "campaignName",
+        "CallFlow": "CallFlow",
+        "phone_number": "phone_number",
+        "Source": "Source"
+    }
+
+    available_cols = [col for col in final_columns.keys() if col in df.columns]
+    df = df[available_cols].copy()
+    df.rename(columns=final_columns, inplace=True)
+
+    return df
+
 # ================= MAIN PIPELINE =================
 def run_pipeline():
     # Load Team Mapping
@@ -6,36 +95,16 @@ def run_pipeline():
     team_agents_clean = [str(x).strip() for x in team_agents]
 
     start_date = get_last_date_from_bq()
-    
-    # --- LAG LOGIC START ---
-    batch_now_utc = datetime.now(pytz.utc)
-    # Define our data cutoff: 5 minutes ago to allow Ozonetel to finalize durations
-    fetch_to_ist = datetime.now(india) - timedelta(minutes=5)
-    today_date = fetch_to_ist.date()
-    # --- LAG LOGIC END ---
+    today = datetime.now(india).date()
     
     all_data = []
     curr = start_date
     headers = {"Content-Type": "application/json", "apiKey": API_KEY}
 
-    while curr <= today_date:
+    while curr <= today:
         day_str = curr.strftime("%Y-%m-%d")
-        
-        # Determine the exact time range for today vs. previous days
-        start_time_str = "00:00:00"
-        # If we are fetching for the current day, cap the time at our 5-min lag point
-        if curr == today_date:
-            end_time_str = fetch_to_ist.strftime("%H:%M:%S")
-        else:
-            end_time_str = "23:59:59"
-
-        print(f"Fetching Ozonetel data for: {day_str} {start_time_str} to {end_time_str}")
-        
-        payload = {
-            "fromDate": f"{day_str} {start_time_str}", 
-            "toDate": f"{day_str} {end_time_str}", 
-            "userName": USERNAME
-        }
+        print(f"Fetching Ozonetel data for: {day_str}")
+        payload = {"fromDate": f"{day_str} 00:00:00", "toDate": f"{day_str} 23:59:59", "userName": USERNAME}
         
         try:
             res = requests.get(API_URL, headers=headers, json=payload, timeout=60)
@@ -57,11 +126,14 @@ def run_pipeline():
 
     final_df = pd.concat(all_data, ignore_index=True)
 
-    # Filter: Remove missed inbound calls
+    # 🔥 CRITICAL CASE-INSENSITIVE FILTER: Remove "Inbound" + "Unanswered"
+    # Converts columns to lower temporarily to catch 'InBound' or 'Unanswered' variations
     initial_count = len(final_df)
     final_df = final_df[~((final_df["Type"].str.lower() == "inbound") & 
                           (final_df["Status"].str.lower() == "unanswered"))].copy()
     
+    print(f"Filtering: Removed {initial_count - len(final_df)} missed inbound calls.")
+
     if final_df.empty:
         print("No records left after filtering.")
         return
@@ -76,16 +148,12 @@ def run_pipeline():
     final_df["CallDate"] = pd.to_datetime(final_df["CallDate"]).dt.date
 
     # 2. Add Metadata & Type Enforcement
-    # Use fetch_to_ist so the dashboard shows the 5-minute lag time
-    final_df["updated_at_ampm"] = fetch_to_ist.strftime("%d/%m/%Y %I:%M %p")
-    final_df["updated_at_utc"] = batch_now_utc # Helper for internal tracking
-    
+    final_df["updated_at_ampm"] = datetime.now(india).strftime("%d/%m/%Y %I:%M %p")
     final_df["CallID"] = final_df["CallID"].astype(str)
     final_df["duration_sec"] = pd.to_numeric(final_df["duration_sec"]).fillna(0).astype(int)
     final_df["talktime_sec"] = pd.to_numeric(final_df["talktime_sec"]).fillna(0).astype(int)
 
     # 3. INCREMENTAL LOGIC (Triple Key Deduplication)
-    # We fetch existing records from start_date onwards to compare
     query = f"SELECT CAST(CallID AS STRING) as CallID, StartTime, EndTime FROM `{TABLE_ID}` WHERE CallDate >= '{start_date}'"
     existing_bq = client.query(query).to_dataframe()
     
@@ -112,6 +180,9 @@ def run_pipeline():
             ]
         )
         client.load_table_from_dataframe(to_push, TABLE_ID, job_config=job_config).result()
-        print("✅ Ozonetel Pipeline successful.")
+        print("✅ Pipeline run successful.")
     else:
         print("No new unique records found.")
+
+if __name__ == "__main__":
+    run_pipeline()
