@@ -241,44 +241,45 @@ def process_day_data(details, team_agents_clean):
             print(f"  🔬 DEBUG — Sample team agents   : {team_agents_clean[:10]}")
 
     # ── Rename API fields → BQ column names ──
-rename_map = {
-    "CallID"      : "CallID",
-    "AgentName"   : "AgentName",
-    "CallerID"    : "phone_number",
-    "StartTime"   : "StartTime",
-    "EndTime"     : "EndTime",
-    "Duration"    : "Duration",
-    "TalkTime"    : "TalkTime",
-    "DialStatus"  : "Status",
-    "Type"        : "Type",
-    "Disposition" : "Disposition",
-    "CampaignName": "CampaignName",
-    "HangupBy"    : "HangupBy",
-    "Location"    : "Location",
-}
+    rename_map = {
+        "CallID"      : "CallID",
+        "AgentName"   : "AgentName",
+        "CallerID"    : "phone_number",
+        "StartTime"   : "StartTime",
+        "EndTime"     : "EndTime",
+        "Duration"    : "Duration",
+        "TalkTime"    : "TalkTime",
+        "DialStatus"  : "Status",
+        "Type"        : "Type",
+        "Disposition" : "Disposition",
+        "CampaignName": "CampaignName",
+        "HangupBy"    : "HangupBy",
+        "Location"    : "Location",
+    }
 
-# If API already has a 'Status' column, drop 'DialStatus' before renaming
-# to avoid duplicate column names which break .str accessor
-if "Status" in df.columns and "DialStatus" in df.columns:
-    df = df.drop(columns=["DialStatus"])
-    
-df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+    # If API already has 'Status', drop 'DialStatus' before renaming
+    if "Status" in df.columns and "DialStatus" in df.columns:
+        df = df.drop(columns=["DialStatus"])
 
-# Deduplicate columns just in case (keep first occurrence)
-df = df.loc[:, ~df.columns.duplicated(keep="first")]
+    df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
 
-# ── Standardise text ──
-for col in ["Status", "Type", "AgentName"]:
-    if col in df.columns:
-        df[col] = df[col].astype(str).str.strip()
+    # Deduplicate columns just in case
+    df = df.loc[:, ~df.columns.duplicated(keep="first")]
+
+    # ── Duration conversions ──
+    df["duration_sec"] = df["Duration"].apply(hhmmss_to_seconds) if "Duration" in df.columns else 0
+    df["talktime_sec"] = df["TalkTime"].apply(hhmmss_to_seconds) if "TalkTime" in df.columns else 0
+
+    # ── Standardise text ──
+    for col in ["Status", "Type", "AgentName"]:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
 
     # ── Team filter ──
-    # IMPORTANT: Only filter if team_agents_clean has entries AND AgentName column exists
     before_filter = len(df)
     if team_agents_clean and "AgentName" in df.columns:
-        # Case-insensitive match to avoid misses due to casing differences
-        df_agent_lower  = df["AgentName"].str.lower()
-        team_lower      = [a.lower() for a in team_agents_clean]
+        df_agent_lower = df["AgentName"].str.lower()
+        team_lower     = [a.lower() for a in team_agents_clean]
         df = df[df_agent_lower.isin(team_lower)].copy()
 
         if DEBUG_MODE:
