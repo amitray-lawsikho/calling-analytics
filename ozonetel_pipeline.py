@@ -460,9 +460,9 @@ def run_pipeline():
             to_push[col] = to_push[col].replace({"nan": "", "<NA>": "", "None": ""})
 
     # ── Re-enforce CallDate as proper Python date after merge ──
-     to_push["CallDate"] = pd.to_datetime(to_push["CallDate"]).dt.date
+    to_push["CallDate"] = pd.to_datetime(to_push["CallDate"]).dt.date
 
-    # ── Map CampaignName → campaignName to match Colab schema ──
+    # ── Map CampaignName → campaignName to match BQ schema ──
     if "CampaignName" in to_push.columns and "campaignName" not in to_push.columns:
         to_push["campaignName"] = to_push["CampaignName"]
 
@@ -473,31 +473,15 @@ def run_pipeline():
     # ── Add Source column ──
     to_push["source"] = "Ozonetel"
 
-    # ── STRICT COLUMN WHITELIST — must match BQ table schema exactly ──
-    # This is what the Colab backfill pushes. Only these columns exist in BQ.
+    # ── STRICT COLUMN WHITELIST ──
     BQ_COLUMNS = [
-        "CallDate",        # DATE
-        "CallID",          # STRING
-        "AgentName",       # STRING
-        "Status",          # STRING
-        "Disposition",     # STRING
-        "StartTime",       # TIMESTAMP
-        "EndTime",         # TIMESTAMP
-        "duration_sec",    # INTEGER
-        "talktime_sec",    # INTEGER
-        "Skill",           # STRING
-        "Type",            # STRING
-        "campaignName",    # STRING
-        "phone_number",    # STRING
-        "updated_at_ampm", # STRING
-        "updated_at_utc",  # TIMESTAMP
-        "source",          # STRING
+        "CallDate", "CallID", "AgentName", "Status", "Disposition",
+        "StartTime", "EndTime", "duration_sec", "talktime_sec",
+        "Skill", "Type", "campaignName", "phone_number",
+        "updated_at_ampm", "updated_at_utc", "source",
     ]
-
-    # Only keep columns that both exist in whitelist AND in the dataframe
     final_cols = [c for c in BQ_COLUMNS if c in to_push.columns]
     to_push = to_push[final_cols]
-
     print(f"\n📋 Pushing columns: {final_cols}")
 
     # ── Push to BigQuery ──
