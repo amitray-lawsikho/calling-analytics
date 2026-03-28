@@ -450,10 +450,17 @@ def run_pipeline():
 
     # ── Sanitise mixed-type columns before push ──
     # Rating and similar fields can be float/string mixed — force all object cols to str
-    for col in to_push.columns:
-        if to_push[col].dtype == object:
-            to_push[col] = to_push[col].astype(str).replace("nan", "").replace("<NA>", "")
+    SKIP_SANITISE = {"CallDate", "StartTime", "EndTime", "updated_at_utc"}
 
+    for col in to_push.columns:
+        if col in SKIP_SANITISE:
+            continue
+        if to_push[col].dtype == object:
+            to_push[col] = to_push[col].astype(str).str.strip()
+            to_push[col] = to_push[col].replace({"nan": "", "<NA>": "", "None": ""})
+
+    # ── Re-enforce CallDate as proper Python date after merge ──
+    to_push["CallDate"] = pd.to_datetime(to_push["CallDate"]).dt.date
     # ── Push to BigQuery ──
     if not to_push.empty:
         job_config = bigquery.LoadJobConfig(
