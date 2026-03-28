@@ -44,7 +44,7 @@ MAX_LOOKBACK_DAYS = 2
 LAG_MINUTES       = 5
 
 # ── Set to True to print raw API response for debugging ──
-DEBUG_MODE = False
+DEBUG_MODE = True
 
 india = pytz.timezone("Asia/Kolkata")
 
