@@ -24,7 +24,7 @@ DATASET_ID = "crm_dashboard"
 TABLE_NAME = "ozonetel_calls"
 TABLE_ID   = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_NAME}"
 
-TEAM_SHEET_URL       = "https://docs.google.com/spreadsheets/d/e/YOUR_SHEET_ID/pub?gid=0&single=true&output=csv"
+TEAM_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRT73ztvPNZSvIu5WLxo-3WQ76JMAnt4P9dITd4EAbjSvuDytfgvdfri1WPXotCjm_Etnb80_Q7S-wf/pub?gid=973926168&single=true&output=csv"
 SERVICE_ACCOUNT_FILE = "/content/drive/MyDrive/credentials/bigquery_key.json"
 
 # ── Pipeline tuning ──
