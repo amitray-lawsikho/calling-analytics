@@ -461,6 +461,29 @@ def run_pipeline():
 
     # ── Re-enforce CallDate as proper Python date after merge ──
     to_push["CallDate"] = pd.to_datetime(to_push["CallDate"]).dt.date
+    seen_lower = {}
+    cols_to_keep = []
+    for col in to_push.columns:
+        key = col.lower()
+        if key not in seen_lower:
+            seen_lower[key] = col
+            cols_to_keep.append(col)
+    to_push = to_push[cols_to_keep]
+
+    # ── Normalize all column names to lowercase for BigQuery consistency ──
+    to_push.columns = [c.lower() for c in to_push.columns]
+
+    # ── Restore the exact BQ schema column names that need specific casing ──
+    rename_back = {
+        "starttime"       : "StartTime",
+        "endtime"         : "EndTime",
+        "calldate"        : "CallDate",
+        "callid"          : "CallID",
+        "agentname"       : "AgentName",
+        "updated_at_utc"  : "updated_at_utc",
+        "updated_at_ampm" : "updated_at_ampm",
+    }
+    to_push = to_push.rename(columns=rename_back)
     # ── Push to BigQuery ──
     if not to_push.empty:
         job_config = bigquery.LoadJobConfig(
