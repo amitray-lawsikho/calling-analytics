@@ -38,13 +38,13 @@ TEAM_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRT73ztvPNZSvI
 SERVICE_ACCOUNT_FILE = "/content/drive/MyDrive/credentials/bigquery_key.json"
 
 # ── Pipeline tuning ──
-PAGE_SIZE         = 100   # SAFE: reduced from 500 — some APIs reject large page sizes
-RATE_LIMIT_SLEEP  = 32    # seconds between requests (2 req/min limit)
+PAGE_SIZE         = 500  
+RATE_LIMIT_SLEEP  = 32   
 MAX_LOOKBACK_DAYS = 2
 LAG_MINUTES       = 5
 
 # ── Set to True to print raw API response for debugging ──
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 india = pytz.timezone("Asia/Kolkata")
 
