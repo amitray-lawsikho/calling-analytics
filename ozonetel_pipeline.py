@@ -16,8 +16,8 @@ from google.oauth2 import service_account
 # ─────────────────────────────────────────────
 
 API_URL  = "https://in1-ccaas-api.ozonetel.com/ca_reports/getCDRDefaultByPagination"
-API_KEY  = "YOUR_API_KEY"
-USERNAME = "YOUR_USERNAME"
+API_KEY  = os.environ.get("OZONETEL_API_KEY")
+USERNAME = os.environ.get("OZONETEL_USERNAME")
 
 PROJECT_ID = "studious-apex-488820-c3"
 DATASET_ID = "crm_dashboard"
