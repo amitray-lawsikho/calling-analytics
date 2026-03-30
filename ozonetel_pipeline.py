@@ -149,6 +149,13 @@ def run_pipeline():
         if all_details:
             processed = process_day_data(all_details, team_agents_clean)
             if not processed.empty:
+                before = len(processed)
+                processed = processed[
+                    processed["phone_number"].notna() &
+                    (processed["phone_number"].astype(str).str.strip() != "") &
+                    (processed["phone_number"].astype(str).str.strip() != "nan")
+                ].copy()
+                print(f"  Dropped {before - len(processed)} records with blank phone_number.")
                 processed["CallDate"] = curr
                 all_data.append(processed)
                 print(f"  Queued {len(processed)} records for {day_str}")
