@@ -1,4 +1,4 @@
-# 🚀 Revenue BigQuery ETL Pipeline
+# 🚀 Increment-Source-Bigquery-Pipeline
 
 This repository contains a **production-grade ELT (Extract, Load, Transform) pipeline system** engineered to ingest CRM, telephony, and manual operational data into Google BigQuery. 
 
