@@ -66,38 +66,35 @@ df.columns = (
 )
 
 # SELECT REQUIRED COLUMNS
-df = df[
-df = df[
-[
-"date",
-"name",
-"contact_no",
-"email_id",
-"course",
-"fee_paid",
-"caller_name_________(for_ops)_for_enrollment_link_circulation",
-"enrollment",
-"source",
-"course_price",
-"lawsikho/skill_arbitrage",
-"full/installment_(welcome_callers_mis)"
+cols_to_select = [
+    "date",
+    "name",
+    "contact_no",
+    "email_id",
+    "course",
+    "fee_paid",
+    "caller_name_________(for_ops)_for_enrollment_link_circulation",
+    "enrollment",
+    "source",
+    "course_price",
+    "lawsikho/skill_arbitrage",
+    "full/installment_(welcome_callers_mis)",
 ]
-]
+df = df[cols_to_select]
 
-# RENAME COLUMNS
 df.columns = [
-"Date",
-"Name",
-"Contact_No",
-"Email_Id",
-"Course",
-"Fee_paid",
-"Caller_name",
-"Enrollment",
-"Source",
-"Course_Price",
-"LawSikho_Skill_Arbitrage",
-"Full_Installment"
+    "Date",
+    "Name",
+    "Contact_No",
+    "Email_Id",
+    "Course",
+    "Fee_paid",
+    "Caller_name",
+    "Enrollment",
+    "Source",
+    "Course_Price",
+    "LawSikho_Skill_Arbitrage",
+    "Full_Installment",
 ]
 
 # CLEAN DATE
