@@ -67,6 +67,7 @@ df.columns = (
 
 # SELECT REQUIRED COLUMNS
 df = df[
+df = df[
 [
 "date",
 "name",
@@ -78,7 +79,8 @@ df = df[
 "enrollment",
 "source",
 "course_price",
-"lawsikho/skill_arbitrage"
+"lawsikho/skill_arbitrage",
+"full/installment_(welcome_callers_mis)"
 ]
 ]
 
@@ -94,7 +96,8 @@ df.columns = [
 "Enrollment",
 "Source",
 "Course_Price",
-"LawSikho_Skill_Arbitrage"
+"LawSikho_Skill_Arbitrage",
+"Full_Installment"
 ]
 
 # CLEAN DATE
@@ -185,6 +188,7 @@ bigquery.SchemaField("Enrollment","STRING"),
 bigquery.SchemaField("Source","STRING"),
 bigquery.SchemaField("Course_Price","FLOAT"),
 bigquery.SchemaField("LawSikho_Skill_Arbitrage","STRING"),
+bigquery.SchemaField("Full_Installment","STRING"),
 bigquery.SchemaField("Rev_Month","DATE"),
 bigquery.SchemaField("updated_at","TIMESTAMP"),
 bigquery.SchemaField("updated_at_ampm","STRING"),
