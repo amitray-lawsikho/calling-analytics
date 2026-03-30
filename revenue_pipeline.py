@@ -189,7 +189,13 @@ bigquery.SchemaField("Full_Installment","STRING"),
 bigquery.SchemaField("Rev_Month","DATE"),
 bigquery.SchemaField("updated_at","TIMESTAMP"),
 bigquery.SchemaField("updated_at_ampm","STRING"),
-]
+],
+time_partitioning=bigquery.TimePartitioning(
+        type_=bigquery.TimePartitioningType.DAY,
+        field="Date",
+        expiration_ms=60 * 24 * 60 * 60 * 1000  # 60 days in ms
+    ),
+    clustering_fields=["Name", "Contact_No"],
 )
 
 job = client.load_table_from_dataframe(
