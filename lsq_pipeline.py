@@ -21,7 +21,7 @@ table_id = f"{PROJECT_ID}.{DATASET}.{TABLE}"
 # TIMEZONE
 india_tz = pytz.timezone("Asia/Kolkata")
 now = datetime.now(india_tz)
-date_60_days = (now - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+date_60_days = (now - timedelta(days=59)).strftime("%Y-%m-%d %H:%M:%S")
 
 # LOG FUNCTION
 def log_pipeline(pipeline_name, rows):
