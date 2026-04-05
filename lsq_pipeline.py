@@ -153,7 +153,7 @@ df_final = pd.DataFrame({
     "Bootcamp_Attendance": pd.to_numeric(df["mx_Bootcamp_Attendance"], errors="coerce"),
     "Bootcamp_attended": df["mx_Bootcamp_attended"],
     "Owner": df["OwnerId"],
-    "ContactStage": pd.to_numeric(df["ProspectStage"], errors="coerce"),
+    "ContactStage": df["ProspectStage"].astype(str),
     "Follow_up_date": df["Follow_up_date"],
     "Course_Fees": df["mx_Course_Fees"],
     "Campaign_Name": df["mx_Campaign_Name"],
