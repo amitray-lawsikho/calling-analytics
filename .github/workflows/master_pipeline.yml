@@ -37,6 +37,10 @@ jobs:
       with:
         credentials_json: '${{ secrets.BQ_CREDENTIALS }}'
 
+    # ---------------- REVENUE PIPELINE ----------------
+    - name: Running Revenue Pipeline
+      run: python revenue_pipeline.py
+
     # ---------------- MANUAL CALLS PIPELINE ----------------
     - name: Running Manual Calls Pipeline
       run: python manual_calls_pipeline.py
@@ -57,10 +61,6 @@ jobs:
       env:
         ACEFONE_API_KEY: ${{ secrets.ACEFONE_API_KEY }}
         ACEFONE_ACCOUNT_ID: ${{ secrets.ACEFONE_ACCOUNT_ID }}
-
-    # ---------------- REVENUE PIPELINE ----------------
-    - name: Running Revenue Pipeline
-      run: python revenue_pipeline.py
 
     # ---------------- LSQ PIPELINE ----------------
     - name: Running LSQ Pipeline
