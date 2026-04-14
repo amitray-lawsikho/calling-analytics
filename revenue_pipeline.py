@@ -96,6 +96,7 @@ cols_to_select = [
     "course_price",
     "lawsikho/skill_arbitrage",
     "full/installment_(welcome_callers_mis)",
+    "enrollment_of_this_month",
 ]
 df = df[cols_to_select]
 
@@ -112,6 +113,7 @@ df.columns = [
     "Course_Price",
     "LawSikho_Skill_Arbitrage",
     "Full_Installment",
+    "Enrollment_of_this_month",
 ]
 
 # CLEAN DATE
@@ -216,7 +218,8 @@ bigquery.SchemaField("Full_Installment","STRING"),
 bigquery.SchemaField("Rev_Month","DATE"),
 bigquery.SchemaField("updated_at","TIMESTAMP"),
 bigquery.SchemaField("updated_at_ampm","STRING"),
-bigquery.SchemaField("community_head","STRING"),   # ← added
+bigquery.SchemaField("community_head","STRING"),
+bigquery.SchemaField("Enrollment_of_this_month","STRING"),
 ],
 time_partitioning=bigquery.TimePartitioning(
         type_=bigquery.TimePartitioningType.DAY,
