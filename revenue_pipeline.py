@@ -65,6 +65,23 @@ df.columns = (
     .str.replace(" ", "_")
 )
 
+# ── FETCH COMMUNITY HEAD MAPPING ──────────────────────────────────────────────
+COMMUNITY_HEAD_CSV = (
+    "https://docs.google.com/spreadsheets/d/e/"
+    "2PACX-1vRT73ztvPNZSvIu5WLxo-3WQ76JMAnt4P9dITd4EAbjSvuDytfgvdfri1WPXotCjm_"
+    "Etnb80_Q7S-wf/pub?gid=289940755&single=true&output=csv"
+)
+
+df_community = pd.read_csv(COMMUNITY_HEAD_CSV, usecols=[0, 1], header=0)
+df_community.columns = ["Course_Name", "Community_Head"]
+df_community["Course_Name"] = df_community["Course_Name"].astype(str).str.strip()
+df_community["Community_Head"] = df_community["Community_Head"].astype(str).str.strip()
+
+community_head_map = dict(
+    zip(df_community["Course_Name"], df_community["Community_Head"])
+)
+# ─────────────────────────────────────────────────────────────────────────────
+
 # SELECT REQUIRED COLUMNS
 cols_to_select = [
     "date",
@@ -157,6 +174,16 @@ df = df[
 # CREATE REV_MONTH
 df["Rev_Month"] = df["Date"].values.astype("datetime64[M]")
 
+# ── MAP COMMUNITY HEAD ────────────────────────────────────────────────────────
+df["community_head"] = (
+    df["Course"]
+    .astype(str)
+    .str.strip()
+    .map(community_head_map)
+    .fillna("")
+)
+# ─────────────────────────────────────────────────────────────────────────────
+
 # UPDATED_AT
 now = datetime.now(india_tz)
 
@@ -189,6 +216,7 @@ bigquery.SchemaField("Full_Installment","STRING"),
 bigquery.SchemaField("Rev_Month","DATE"),
 bigquery.SchemaField("updated_at","TIMESTAMP"),
 bigquery.SchemaField("updated_at_ampm","STRING"),
+bigquery.SchemaField("community_head","STRING"),   # ← added
 ],
 time_partitioning=bigquery.TimePartitioning(
         type_=bigquery.TimePartitioningType.DAY,
