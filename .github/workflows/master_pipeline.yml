@@ -61,6 +61,13 @@ jobs:
       env:
         ACEFONE_API_KEY: ${{ secrets.ACEFONE_API_KEY }}
         ACEFONE_ACCOUNT_ID: ${{ secrets.ACEFONE_ACCOUNT_ID }}
+        
+    # ---------------- LSQ STAGE CHANGE PIPELINE ----------------
+    - name: Running LSQ Stage Change Pipeline
+      run: python lsq_stage_pipeline.py
+      env:
+        LSQ_ACCESS_KEY: ${{ secrets.LSQ_ACCESS_KEY }}
+        LSQ_SECRET_KEY: ${{ secrets.LSQ_SECRET_KEY }}
 
     # ---------------- LSQ PIPELINE ----------------
     - name: Running LSQ Pipeline
