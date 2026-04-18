@@ -1,24 +1,3 @@
-"""
-lsq_stage_pipeline.py
-────────────────────────────────────────────────────────────
-Incremental pipeline: LSQ Stage Change (Webhook Google Sheet)
-→ BigQuery table: crm_dashboard.stage_changed
-
-Logic:
-  1. Fetch last Timestamp from BQ  (fall back to 60 days if empty)
-  2. Pull sheet CSV and filter rows after (last_ts − 5 min)
-  3. Deduplicate within the sheet on {ProspectID, Old_Contact_Stage,
-     New_Contact_Stage, OwnerId}  — keep LAST occurrence
-  4. Deduplicate against BQ rows in the same window
-  5. Extract IST Date from Timestamp
-  6. Build Stage_Changed_By:
-       → ModifiedByName  (unless "System" / blank / null)
-       → else map OwnerId → Name via LSQ Users API
-  7. Convert Timestamp to UTC, load to BQ (WRITE_APPEND)
-  8. Log to MASTER_QUERY_REFRESH
-────────────────────────────────────────────────────────────
-"""
-
 import requests
 import pandas as pd
 import pytz
