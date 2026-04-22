@@ -1,4 +1,4 @@
-name: Master Data Pipeline
+name: Stage Changed
 
 on:
   workflow_dispatch:
