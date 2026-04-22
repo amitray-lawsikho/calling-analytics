@@ -63,8 +63,8 @@ jobs:
         ACEFONE_ACCOUNT_ID: ${{ secrets.ACEFONE_ACCOUNT_ID }}
         
     # ---------------- LSQ STAGE CHANGE PIPELINE ----------------
-    - name: Running LSQ Stage Change Pipeline
-      run: stage_changed_truncate.py
+    - name: Run stage_changed_truncate.py
+      run: python stage_changed_truncate.py
       env:
         LSQ_ACCESS_KEY: ${{ secrets.LSQ_ACCESS_KEY }}
         LSQ_SECRET_KEY: ${{ secrets.LSQ_SECRET_KEY }}
