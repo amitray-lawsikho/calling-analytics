@@ -38,6 +38,3 @@ jobs:
     # ---------------- LSQ STAGE CHANGE PIPELINE ----------------
     - name: Run stage_changed_truncate.py
       run: python stage_changed_truncate.py
-      env:
-        LSQ_ACCESS_KEY: ${{ secrets.LSQ_ACCESS_KEY }}
-        LSQ_SECRET_KEY: ${{ secrets.LSQ_SECRET_KEY }}
