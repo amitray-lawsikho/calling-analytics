@@ -1,32 +1,46 @@
-import requests
 import pandas as pd
 import pytz
-import os
 from datetime import datetime
 from google.cloud import bigquery
 
 # ─── CONFIG ───────────────────────────────────────────────
-PROJECT_ID  = "studious-apex-488820-c3"
-DATASET     = "crm_dashboard"
-TABLE       = "stage_changed"
-TABLE_ID    = f"{PROJECT_ID}.{DATASET}.{TABLE}"
-LOG_TABLE   = f"{PROJECT_ID}.crm_scheduled_results.MASTER_QUERY_REFRESH"
+PROJECT_ID = "studious-apex-488820-c3"
+DATASET    = "crm_dashboard"
+TABLE      = "stage_changed"
+TABLE_ID   = f"{PROJECT_ID}.{DATASET}.{TABLE}"
+LOG_TABLE  = f"{PROJECT_ID}.crm_scheduled_results.MASTER_QUERY_REFRESH"
 
 SHEET_URL = (
     "https://docs.google.com/spreadsheets/d/e/"
-    "2PACX-1vQx3vMVDA8FnTtUNIawCN_DljdbkRRMcOdgAM5iCOiQ4Uy_R2Y5KnwytCqGyMpAr1FMgvulDfo5e2rc"
-    "/pub?gid=1843414438&single=true&output=csv"
+    "2PACX-1vS_DlibGh09XYxLh8SOexTLstUmNPxdLc_2LuX-qUqh6ZbvmAbRxGtm8TaZwz6Zuyz5-04tXp55PLWD"
+    "/pub?gid=0&single=true&output=csv"
 )
 
-LSQ_ACCESS_KEY = os.environ["LSQ_ACCESS_KEY"]
-LSQ_SECRET_KEY = os.environ["LSQ_SECRET_KEY"]
+# Dedup keys (sheet header names)
+DEDUP_KEYS = [
+    "ProspectID",
+    "Old_Contact_Stage",
+    "New_Contact_Stage",
+    "Stage Changed By",
+    "Stage_Changed_On",
+]
 
-DEDUP_KEYS = ["ProspectID", "Old_Contact_Stage", "New_Contact_Stage", "OwnerId"]
+# Final BigQuery column order
 FINAL_COLS = [
-    "Timestamp", "ProspectID", "FirstName", "LastName", "EmailAddress",
-    "Phone", "Alternate_Phone_Number", "Source", "Old_Contact_Stage",
-    "New_Contact_Stage", "OwnerId", "OwnerIdEmailAddress", "Stage_Changed_On",
-    "ModifiedByName", "StageChangeComment", "Date", "Stage_Changed_By",
+    "Timestamp",
+    "ProspectID",
+    "FirstName",
+    "LastName",
+    "EmailAddress",
+    "Phone",
+    "Alternate_Phone_Number",
+    "Source",
+    "Old_Contact_Stage",
+    "New_Contact_Stage",
+    "Stage_Changed_On",
+    "StageChangeComment",
+    "Date",
+    "Stage_Changed_By",
 ]
 
 india  = pytz.timezone("Asia/Kolkata")
@@ -40,7 +54,8 @@ def fetch_sheet() -> pd.DataFrame:
     df = pd.read_csv(SHEET_URL, dtype=str)
     print(f"Rows downloaded: {len(df):,}")
 
-    # Vectorized timestamp parse: DD/MM/YYYY HH:MM:SS in IST
+    # Apps Script writes Timestamp as a real Date object — Sheets renders it as
+    # DD/MM/YYYY HH:MM:SS by default in IST. Parse accordingly.
     df["Timestamp"] = pd.to_datetime(
         df["Timestamp"], format="%d/%m/%Y %H:%M:%S", errors="coerce"
     )
@@ -54,36 +69,14 @@ def fetch_sheet() -> pd.DataFrame:
     return df
 
 
-# ─── FETCH LSQ OWNER MAP ─────────────────────────────────
-def fetch_owner_map() -> dict:
-    """Returns {OwnerId: 'Full Name'} from LSQ Users API."""
-    url    = "https://api-in21.leadsquared.com/v2/UserManagement.svc/Users.Get"
-    params = {"accessKey": LSQ_ACCESS_KEY, "secretKey": LSQ_SECRET_KEY}
-    resp   = requests.get(url, params=params, timeout=30)
-    users  = resp.json()
-
-    if not isinstance(users, list):
-        raise Exception(f"LSQ Users API returned unexpected response: {users}")
-
-    owner_map = {}
-    for u in users:
-        uid  = str(u.get("ID", "")).strip()
-        name = f"{u.get('FirstName', '')} {u.get('LastName', '')}".strip()
-        if uid:
-            owner_map[uid] = name
-
-    print(f"LSQ owner map loaded: {len(owner_map):,} users")
-    return owner_map
-
-
 # ─── LOG ─────────────────────────────────────────────────
 def log_pipeline(rows: int):
     ist_now = datetime.now(india)
     df_log  = pd.DataFrame([{
-        "run_date":       ist_now.date(),
-        "pipeline_name":  "LSQ_STAGE",
-        "run_timestamp":  ist_now.strftime("%d/%m/%Y %I:%M %p"),
-        "rows_inserted":  int(rows),
+        "run_date":      ist_now.date(),
+        "pipeline_name": "LSQ_STAGE",
+        "run_timestamp": ist_now.strftime("%d/%m/%Y %I:%M %p"),
+        "rows_inserted": int(rows),
     }])
     client.load_table_from_dataframe(
         df_log, LOG_TABLE,
@@ -110,53 +103,65 @@ def run_pipeline():
     for col in DEDUP_KEYS:
         if col in df.columns:
             df[col] = df[col].astype(str).str.strip()
+        else:
+            print(f"⚠️  Dedup key '{col}' not found in sheet — skipping.")
 
     # 3. Dedup within the sheet — keep LAST occurrence per key combo
+    available_keys = [k for k in DEDUP_KEYS if k in df.columns]
     before = len(df)
-    df = df.drop_duplicates(subset=DEDUP_KEYS, keep="last")
-    print(f"After dedup on {DEDUP_KEYS}: {before:,} → {len(df):,} rows")
+    df = df.drop_duplicates(subset=available_keys, keep="last")
+    print(f"After dedup on {available_keys}: {before:,} → {len(df):,} rows")
 
-    # 4. Fetch LSQ owner map
-    owner_map = fetch_owner_map()
-
-    # 5. Vectorized Date column (IST date, before UTC conversion)
+    # 4. Vectorized Date column (IST date, before UTC conversion)
     df["Date"] = df["Timestamp"].dt.tz_convert(india).dt.date
 
-    # 6. Vectorized Stage_Changed_By
-    #    If ModifiedByName is a real name → use it
-    #    Else fallback to owner_map[OwnerId], else OwnerId itself
-    system_values = {"system", "", "nan", "none", "null"}
-    modified      = df["ModifiedByName"].astype(str).str.strip()
-    owner_id_str  = df["OwnerId"].astype(str).str.strip()
-
-    is_system = modified.str.lower().isin(system_values)
-    fallback  = owner_id_str.map(owner_map).fillna(owner_id_str)
-
-    df["Stage_Changed_By"] = modified.where(~is_system, fallback)
-
-    # 7. Vectorized phone cleaning
+    # 5. Vectorized phone cleaning — defensive (Apps Script already trims)
     for phone_col in ["Phone", "Alternate_Phone_Number"]:
         if phone_col in df.columns:
             df[phone_col] = (
                 df[phone_col].astype(str)
                 .str.replace("+91", "", regex=False)
+                .str.replace("-", "", regex=False)
                 .str.strip()
                 .str[-10:]
             )
 
+    # 6. LastName = Phone (per spec)
+    df["LastName"] = df["Phone"]
+
+    # 7. Rename sheet headers → BigQuery column names
+    df = df.rename(columns={
+        "Stage Changed By": "Stage_Changed_By",
+        "BotComment":       "StageChangeComment",
+    })
+
     # 8. Convert Timestamp → UTC (vectorized) for BQ storage
     df["Timestamp"] = df["Timestamp"].dt.tz_convert(pytz.utc)
 
-    # 9. Ensure all final columns exist
+    # 9. Ensure all final columns exist (missing ones become NULL)
     for col in FINAL_COLS:
         if col not in df.columns:
             df[col] = None
 
     df_final = df[FINAL_COLS].copy()
 
-    # 10. Load to BigQuery (FULL TRUNCATE)
+    # 10. Drop any rows where Date is NaT — partition column cannot be null
+    before = len(df_final)
+    df_final = df_final.dropna(subset=["Date"])
+    if before != len(df_final):
+        print(f"⚠️  Dropped {before - len(df_final):,} rows with null Date (partition column)")
+
+    # 11. Load to BigQuery (FULL TRUNCATE) — preserve partition + cluster config
     print(f"Loading {len(df_final):,} rows to BigQuery (WRITE_TRUNCATE)...")
-    job_config = bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE")
+    job_config = bigquery.LoadJobConfig(
+        write_disposition="WRITE_TRUNCATE",
+        time_partitioning=bigquery.TimePartitioning(
+            type_=bigquery.TimePartitioningType.DAY,
+            field="Date",
+            expiration_ms=60 * 24 * 60 * 60 * 1000,  # 60 days
+        ),
+        clustering_fields=["Stage_Changed_By", "New_Contact_Stage"],
+    )
     client.load_table_from_dataframe(df_final, TABLE_ID, job_config=job_config).result()
 
     log_pipeline(len(df_final))
