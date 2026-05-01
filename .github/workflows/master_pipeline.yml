@@ -37,6 +37,10 @@ jobs:
       with:
         credentials_json: '${{ secrets.BQ_CREDENTIALS }}'
 
+    # ---------------- ARCHIVE OLD DATA ----------------
+    - name: Archive aging rows to crm_dashboard_old
+      run: python restore_all_pipeline_old.py
+
     # ---------------- REVENUE PIPELINE ----------------
     - name: Running Revenue Pipeline
       run: python revenue_pipeline.py
