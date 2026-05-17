@@ -24,7 +24,7 @@ india = pytz.timezone("Asia/Kolkata")
 # >>> SET THIS: a window you believe has 100+ Mcube calls <
 # Pick a busy stretch — e.g. a couple of weekdays.
 CHECK_START = india.localize(datetime(2026, 5, 12, 0, 0, 0))
-CHECK_END   = india.localize(datetime(2026, 5, 14, 0, 0, 0))
+CHECK_END   = india.localize(datetime(2026, 5, 18, 0, 0, 0))
 
 
 def _api_call(start_ist, end_ist):
