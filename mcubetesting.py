@@ -22,7 +22,7 @@ india = pytz.timezone("Asia/Kolkata")
 
 # >>> SET THIS: a window you KNOW is busy. From your earlier run, the evening
 # of 15 May 2026 had 220+ calls in roughly 17:50-19:00. Use that.
-BUSY_START = india.localize(datetime(2026, 5, 15, 17, 0, 0))
+BUSY_START = india.localize(datetime(2026, 5, 18, 10, 0, 0))
 
 
 def api_count(start_ist, end_ist):
