@@ -18,11 +18,20 @@ MCUBE_TOKEN = os.getenv("MCUBE_TOKEN")
 
 # 3 API hits / min  ->  21s gap (5s safety)
 SLEEP_BETWEEN_CALLS = 21
-# Per docs: "100 window size is allowed per request"
-MAX_RECORDS_PER_RESPONSE = 100
-# Initial chunk size when walking forward
-CHUNK = timedelta(hours=1)
-# Minimum chunk we'll allow recursion to split down to
+
+# --- Response cap ---
+# MCUBE docs claim "100 window size per request", but this was DISPROVEN by
+# an empirical probe: a single call returned 1549 records for a 72h window,
+# and whole-window counts always equalled the sum of their sub-windows
+# (no truncation at any tested volume).
+#
+# So SPLIT_THRESHOLD below is NOT a real cap -- it is only a defensive trigger.
+# A normal run fetches the whole window in ONE API call. The recursive split
+# only ever fires if a response is improbably large, as insurance in case
+# MCUBE ever introduces real truncation. It is set well above the largest
+# count ever observed (1549) yet low enough to still catch a future real cap.
+SPLIT_THRESHOLD = 1000
+# Smallest window recursion will bisect down to.
 MIN_CHUNK = timedelta(minutes=2)
 
 india = pytz.timezone("Asia/Kolkata")
@@ -39,9 +48,25 @@ def time_to_seconds(t):
     except Exception:
         return 0
 
+def _dedup(rows):
+    """Drop duplicate records by callid, preserving order."""
+    seen, out = set(), []
+    for r in rows:
+        cid = str(r.get("callid"))
+        if cid and cid not in seen:
+            seen.add(cid)
+            out.append(r)
+    return out
+
 # ---------------- INCREMENTAL LOGIC ----------------
 
 def get_last_call_time():
+    """
+    Resume point = latest call_datetime already in BQ, rewound 30 minutes.
+    The 30-min rewind plus the deduplication steps guarantee that records
+    near the previous run's boundary are re-pulled and then dropped as
+    duplicates -- nothing at the edge is ever missed.
+    """
     try:
         q = f"SELECT MAX(call_datetime) AS last_time FROM `{TABLE_ID}` WHERE source = 'Mcube'"
         df = client.query(q).to_dataframe()
@@ -91,30 +116,38 @@ def _api_call(start_ist, end_ist):
         return msg
 
     except Exception as e:
-        print(f"  Error {start_ist} → {end_ist}: {e}")
+        print(f"  Error {start_ist} -> {end_ist}: {e}")
         return []
 
 def fetch_window_recursive(start_ist, end_ist):
-    """One window. Splits and recurses if response saturates at 100."""
-    print(f"Fetching {start_ist} → {end_ist}")
+    """
+    Fetch one time window in a single API call.
+
+    The probe proved MCUBE returns the FULL window with no truncation, so in
+    normal operation this returns everything in one call and does not recurse.
+
+    Defensive fallback only: if a response is improbably large (>= the
+    SPLIT_THRESHOLD insurance value), the window is bisected and each half
+    fetched separately, then recombined with dedup. This is ordering-agnostic
+    -- every leaf window is covered exactly once, so nothing is dropped, and
+    any boundary overlap between halves is removed by _dedup.
+    """
+    print(f"Fetching {start_ist} -> {end_ist}")
     msg = _api_call(start_ist, end_ist)
     print(f"  Got {len(msg)} records.")
 
-    if len(msg) >= MAX_RECORDS_PER_RESPONSE and (end_ist - start_ist) > MIN_CHUNK:
-        mid = start_ist + (end_ist - start_ist) / 2
-        print(f"  Saturated. Splitting at {mid}")
-        time.sleep(SLEEP_BETWEEN_CALLS)
-        first = fetch_window_recursive(start_ist, mid)
-        time.sleep(SLEEP_BETWEEN_CALLS)
-        second = fetch_window_recursive(mid, end_ist)
-
-        seen, combined = set(), []
-        for r in first + second:
-            cid = str(r.get("callid"))
-            if cid and cid not in seen:
-                seen.add(cid)
-                combined.append(r)
-        return combined
+    if len(msg) >= SPLIT_THRESHOLD:
+        if (end_ist - start_ist) > MIN_CHUNK:
+            mid = start_ist + (end_ist - start_ist) / 2
+            print(f"  Unusually large response ({len(msg)}). Splitting at {mid}")
+            time.sleep(SLEEP_BETWEEN_CALLS)
+            first = fetch_window_recursive(start_ist, mid)
+            time.sleep(SLEEP_BETWEEN_CALLS)
+            second = fetch_window_recursive(mid, end_ist)
+            return _dedup(first + second)
+        else:
+            print(f"  WARNING: >= {SPLIT_THRESHOLD} records in a <= "
+                  f"{MIN_CHUNK} window; cannot split further.")
 
     return msg
 
@@ -137,7 +170,7 @@ def process_records(rows):
 
     out["call_owner"] = df["agentname"].fillna("").astype(str).str.strip()
 
-    # Customer's number — last 10 of `callto` for both directions in this API
+    # Customer's number -- last 10 of `callto` for both directions in this API
     out["client_number"] = df["callto"].fillna("").astype(str).str[-10:]
 
     # Talk time (matches acefone's call_duration semantics)
@@ -146,7 +179,7 @@ def process_records(rows):
     fallback_mask = (out["call_duration"] == 0) & (out["status"] == "answered")
     out.loc[fallback_mask, "call_duration"] = pulse_int[fallback_mask]
 
-    # Times — API returns IST naive
+    # Times -- API returns IST naive
     start_dt = pd.to_datetime(df["starttime"], errors="coerce")
     out["call_datetime"] = start_dt.apply(
         lambda x: india.localize(x).astimezone(pytz.utc) if pd.notna(x) else pd.NaT
@@ -210,32 +243,26 @@ def log_pipeline(rows):
 
 def run_pipeline():
     last_time_ist = get_last_call_time()
-    end_time_ist  = datetime.now(india) - timedelta(minutes=5)
+    end_time_ist  = datetime.now(india) - timedelta(minutes=5)   # 5-min lag
 
     if last_time_ist >= end_time_ist:
         print("Already up to date.")
         log_pipeline(0)
         return
 
-    print(f"Fetching {last_time_ist} → {end_time_ist} (5-min lag)")
+    print(f"Fetching {last_time_ist} -> {end_time_ist} (5-min lag)")
 
-    all_rows = []
-    chunk_start = last_time_ist
-    first_call = True
-
-    while chunk_start < end_time_ist:
-        chunk_end = min(chunk_start + CHUNK, end_time_ist)
-        if not first_call:
-            time.sleep(SLEEP_BETWEEN_CALLS)
-        first_call = False
-
-        all_rows.extend(fetch_window_recursive(chunk_start, chunk_end))
-        chunk_start = chunk_end
+    # Single API call for the WHOLE window (probe-proven: no truncation).
+    # Recursion inside fetch_window_recursive is a defensive fallback only.
+    all_rows = fetch_window_recursive(last_time_ist, end_time_ist)
 
     if not all_rows:
         print("No records returned by Mcube.")
         log_pipeline(0)
         return
+
+    # Safety dedup of the raw API rows before transform.
+    all_rows = _dedup(all_rows)
 
     df = process_records(all_rows)
     if df.empty:
@@ -252,7 +279,9 @@ def run_pipeline():
         log_pipeline(0)
         return
 
-    # Dedup against existing BQ rows in this window
+    # Dedup against existing BQ rows in this window.
+    # Final safety net: removes anything re-pulled by the 30-min rewind or by
+    # a defensive split overlap, so no call is ever inserted twice.
     start_ts = last_time_ist.astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
     q = (
         f"SELECT call_id FROM `{TABLE_ID}` "
