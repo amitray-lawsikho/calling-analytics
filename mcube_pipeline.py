@@ -282,6 +282,8 @@ def run_pipeline():
     # Dedup against existing BQ rows in this window.
     # Final safety net: removes anything re-pulled by the 30-min rewind or by
     # a defensive split overlap, so no call is ever inserted twice.
+
+    df = df[~df["reason"].astype(str).str.strip().str.upper().str.contains("CANCEL", na=False)]
     start_ts = last_time_ist.astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
     q = (
         f"SELECT call_id FROM `{TABLE_ID}` "
