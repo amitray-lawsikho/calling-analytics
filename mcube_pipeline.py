@@ -269,16 +269,16 @@ def run_pipeline():
         log_pipeline(0)
         return
 
-    # Filter for dashboard accuracy (mirrors Acefone)
-    df = df[
-        (df["direction"] == "outbound") |
-        ((df["direction"] == "inbound") & (df["status"] == "answered"))
-    ]
-    df = df[~((df["status"] == "answered") & (df["call_duration"] == 0))]
-    if df.empty:
-        log_pipeline(0)
-        return
-
+    # Filter for dashboard accuracy (mirrors Acefone) : Currently disabled for mcube. # removal to consider
+    #df = df[
+    #    (df["direction"] == "outbound") |
+    #    ((df["direction"] == "inbound") & (df["status"] == "answered"))
+    #]
+    #df = df[~((df["status"] == "answered") & (df["call_duration"] == 0))]
+    #if df.empty:
+    #    log_pipeline(0)
+    #    return
+    
     # Dedup against existing BQ rows in this window.
     # Final safety net: removes anything re-pulled by the 30-min rewind or by
     # a defensive split overlap, so no call is ever inserted twice.
