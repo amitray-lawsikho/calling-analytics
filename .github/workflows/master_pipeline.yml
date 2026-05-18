@@ -59,6 +59,12 @@ jobs:
         OZONETEL_USERNAME: ${{ secrets.OZONETEL_USERNAME }}
         TEAM_SHEET_URL: ${{ secrets.TEAM_SHEET_URL }}
 
+    # ---------------- MCUBE PIPELINE ----------------     
+    - name: Run Mcube Pipeline
+      run: python mcube_pipeline.py
+      env:
+        MCUBE_TOKEN: ${{ secrets.MCUBE_TOKEN }}
+
     # ---------------- ACEFONE PIPELINE ---------------
     - name: Running Acefone Pipeline
       run: python acefone_pipeline.py
