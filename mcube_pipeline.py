@@ -174,13 +174,19 @@ def process_records(rows):
     out["client_number"] = df["callto"].fillna("").astype(str).str[-10:]
 
     # Talk time (matches acefone's call_duration semantics)
-    out["call_duration"] = df["answeredtime"].apply(time_to_seconds)
-    pulse_int = pd.to_numeric(df.get("pulse", 0), errors="coerce").fillna(0).astype(int)
-    fallback_mask = (out["call_duration"] == 0) & (out["status"] == "answered")
-    out.loc[fallback_mask, "call_duration"] = pulse_int[fallback_mask]
-
     # Times -- API returns IST naive
     start_dt = pd.to_datetime(df["starttime"], errors="coerce")
+    end_dt   = pd.to_datetime(df["endtime"],   errors="coerce")
+
+    # Talk time = endtime - starttime (in seconds)
+    duration_delta = (end_dt - start_dt).dt.total_seconds()
+    out["call_duration"] = (
+        pd.to_numeric(duration_delta, errors="coerce")
+          .fillna(0)
+          .clip(lower=0)
+          .astype(int)
+    )
+
     out["call_datetime"] = start_dt.apply(
         lambda x: india.localize(x).astimezone(pytz.utc) if pd.notna(x) else pd.NaT
     )
