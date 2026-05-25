@@ -25,7 +25,7 @@ SLEEP_BETWEEN_CALLS = 21
 # pages until a page returns fewer than PAGE_SIZE (= last page) or is
 # empty. This replaces the earlier recursive-window-split workaround,
 # which was a defensive measure from when truncation behaviour was unclear.
-PAGE_SIZE = 3500
+PAGE_SIZE = 3000
 
 # Defensive ceiling on pages-per-window. 200 pages * 3500 = 700,000 records
 # in one window, which is far beyond any realistic 30-min-rewind run.
