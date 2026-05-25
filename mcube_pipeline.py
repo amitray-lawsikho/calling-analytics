@@ -16,11 +16,8 @@ LOG_TABLE = f"{PROJECT_ID}.crm_scheduled_results.MASTER_QUERY_REFRESH"
 API_URL = "https://config.mcube.com/Restmcube-api/callsdatabydate"
 MCUBE_TOKEN = os.getenv("MCUBE_TOKEN")
 
-# 3 API hits / min  ->  21s gap (5s safety)
 SLEEP_BETWEEN_CALLS = 21
 
-# Defensive ceiling on pages-per-window. 200 pages * 3500 = 700,000 records
-# in one window, which is far beyond any realistic 30-min-rewind run.
 MAX_PAGES = 200
 
 india = pytz.timezone("Asia/Kolkata")
@@ -110,24 +107,6 @@ def _api_call(start_ist, end_ist, page=1):
         return []
 
 def fetch_window_paginated(start_ist, end_ist):
-    """
-    Fetch a time window using MCUBE's pagination.
-
-    MCUBE's `page` parameter has non-standard semantics (verified empirically):
-      - page=1 returns ~3,500 records (offset 0)
-      - page=2 returns ~7,000 records (offset 3,500), disjoint from page 1
-      - page=3 returns ~5,856 records (offset 7,000), OVERLAPS page 2
-      - page=N likely starts at offset (N-1)*3500 with a variable size cap
-    Page sizes are NOT a reliable end-of-data signal, and consecutive pages
-    can overlap by thousands of records.
-
-    Termination signal: a page that contributes zero new callids. This handles
-    both "past end of data" (empty response) and "fully redundant page"
-    (all callids already seen) uniformly.
-
-    Cross-page dedup is done here as we accumulate, so the returned list
-    has no duplicates regardless of MCUBE's overlap behaviour.
-    """
     all_rows = []
     seen_ids = set()
     page = 1
@@ -279,9 +258,6 @@ def run_pipeline():
 
     print(f"Fetching {last_time_ist} -> {end_time_ist} (5-min lag)")
 
-    # Paginated fetch for the entire window. Loops through pages of up
-    # to PAGE_SIZE records each, fully covering the window regardless
-    # of volume.
     all_rows = fetch_window_paginated(last_time_ist, end_time_ist)
 
     if not all_rows:
@@ -289,27 +265,12 @@ def run_pipeline():
         log_pipeline(0)
         return
 
-    # Safety dedup of the raw API rows before transform.
     all_rows = _dedup(all_rows)
 
     df = process_records(all_rows)
     if df.empty:
         log_pipeline(0)
         return
-
-    # Filter for dashboard accuracy (mirrors Acefone) : Currently disabled for mcube. # removal to consider
-    #df = df[
-    #    (df["direction"] == "outbound") |
-    #    ((df["direction"] == "inbound") & (df["status"] == "answered"))
-    #]
-    #df = df[~((df["status"] == "answered") & (df["call_duration"] == 0))]
-    #if df.empty:
-    #    log_pipeline(0)
-    #    return
-    
-    # Dedup against existing BQ rows in this window.
-    # Final safety net: removes anything re-pulled by the 30-min rewind or by
-    # a defensive split overlap, so no call is ever inserted twice.
 
     df = df[~df["reason"].astype(str).str.strip().str.upper().str.contains("CANCEL", na=False)]
     start_ts = last_time_ist.astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
