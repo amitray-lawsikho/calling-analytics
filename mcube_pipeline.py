@@ -109,23 +109,6 @@ def _api_call(start_ist, end_ist, page=1):
         print(f"  Error {start_ist} -> {end_ist} (page {page}): {e}")
         return []
 
-        if res.status_code != 200:
-            print(f"  HTTP {res.status_code}: {res.text[:200]}")
-            return []
-
-        data = res.json()
-        if data.get("status") != "succ":
-            return []
-
-        msg = data.get("msg") or []
-        if not isinstance(msg, list):
-            return []
-        return msg
-
-    except Exception as e:
-        print(f"  Error {start_ist} -> {end_ist}: {e}")
-        return []
-
 def fetch_window_paginated(start_ist, end_ist):
     """
     Fetch a time window using MCUBE's pagination.
