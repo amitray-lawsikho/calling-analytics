@@ -19,20 +19,17 @@ MCUBE_TOKEN = os.getenv("MCUBE_TOKEN")
 # 3 API hits / min  ->  21s gap (5s safety)
 SLEEP_BETWEEN_CALLS = 21
 
-# --- Response cap ---
-# MCUBE docs claim "100 window size per request", but this was DISPROVEN by
-# an empirical probe: a single call returned 1549 records for a 72h window,
-# and whole-window counts always equalled the sum of their sub-windows
-# (no truncation at any tested volume).
-#
-# So SPLIT_THRESHOLD below is NOT a real cap -- it is only a defensive trigger.
-# A normal run fetches the whole window in ONE API call. The recursive split
-# only ever fires if a response is improbably large, as insurance in case
-# MCUBE ever introduces real truncation. It is set well above the largest
-# count ever observed (1549) yet low enough to still catch a future real cap.
-SPLIT_THRESHOLD = 1000
-# Smallest window recursion will bisect down to.
-MIN_CHUNK = timedelta(minutes=2)
+# --- Pagination ---
+# MCUBE confirmed the Historical Data API supports pagination via the
+# "page" parameter, returning up to 3500 records per page. We iterate
+# pages until a page returns fewer than PAGE_SIZE (= last page) or is
+# empty. This replaces the earlier recursive-window-split workaround,
+# which was a defensive measure from when truncation behaviour was unclear.
+PAGE_SIZE = 3500
+
+# Defensive ceiling on pages-per-window. 200 pages * 3500 = 700,000 records
+# in one window, which is far beyond any realistic 30-min-rewind run.
+MAX_PAGES = 200
 
 india = pytz.timezone("Asia/Kolkata")
 client = bigquery.Client()
@@ -86,11 +83,12 @@ def get_last_call_time():
 
 # ---------------- FETCH MCUBE ----------------
 
-def _api_call(start_ist, end_ist):
+def _api_call(start_ist, end_ist, page=1):
     payload = {
         "start_date": start_ist.strftime("%Y-%m-%d %H:%M:%S"),
         "end_date":   end_ist.strftime("%Y-%m-%d %H:%M:%S"),
         "Authorization": MCUBE_TOKEN,
+        "page": page,
     }
     headers = {"Content-Type": "application/json"}
 
@@ -100,7 +98,24 @@ def _api_call(start_ist, end_ist):
         if res.status_code == 429:
             print("  Rate limited. Sleeping 65s...")
             time.sleep(65)
-            return _api_call(start_ist, end_ist)
+            return _api_call(start_ist, end_ist, page=page)
+
+        if res.status_code != 200:
+            print(f"  HTTP {res.status_code}: {res.text[:200]}")
+            return []
+
+        data = res.json()
+        if data.get("status") != "succ":
+            return []
+
+        msg = data.get("msg") or []
+        if not isinstance(msg, list):
+            return []
+        return msg
+
+    except Exception as e:
+        print(f"  Error {start_ist} -> {end_ist} (page {page}): {e}")
+        return []
 
         if res.status_code != 200:
             print(f"  HTTP {res.status_code}: {res.text[:200]}")
@@ -119,38 +134,51 @@ def _api_call(start_ist, end_ist):
         print(f"  Error {start_ist} -> {end_ist}: {e}")
         return []
 
-def fetch_window_recursive(start_ist, end_ist):
+def fetch_window_paginated(start_ist, end_ist):
     """
-    Fetch one time window in a single API call.
+    Fetch a time window using MCUBE's pagination.
 
-    The probe proved MCUBE returns the FULL window with no truncation, so in
-    normal operation this returns everything in one call and does not recurse.
+    Iterates page=1, 2, 3, ... until:
+      - a page returns 0 records (no more data), OR
+      - a page returns fewer than PAGE_SIZE records (last page), OR
+      - we hit MAX_PAGES (defensive ceiling; should never trigger).
 
-    Defensive fallback only: if a response is improbably large (>= the
-    SPLIT_THRESHOLD insurance value), the window is bisected and each half
-    fetched separately, then recombined with dedup. This is ordering-agnostic
-    -- every leaf window is covered exactly once, so nothing is dropped, and
-    any boundary overlap between halves is removed by _dedup.
+    Rate-limited by SLEEP_BETWEEN_CALLS between page fetches
+    (MCUBE: 3 hits/min). A final _dedup pass removes any cross-page
+    duplicates in case MCUBE's pagination is not perfectly stable
+    at page boundaries.
+
+    This is lossless at any volume: 30k calls = ~9 pages, 100k = ~29 pages.
     """
-    print(f"Fetching {start_ist} -> {end_ist}")
-    msg = _api_call(start_ist, end_ist)
-    print(f"  Got {len(msg)} records.")
+    all_rows = []
+    page = 1
 
-    if len(msg) >= SPLIT_THRESHOLD:
-        if (end_ist - start_ist) > MIN_CHUNK:
-            mid = start_ist + (end_ist - start_ist) / 2
-            print(f"  Unusually large response ({len(msg)}). Splitting at {mid}")
-            time.sleep(SLEEP_BETWEEN_CALLS)
-            first = fetch_window_recursive(start_ist, mid)
-            time.sleep(SLEEP_BETWEEN_CALLS)
-            second = fetch_window_recursive(mid, end_ist)
-            return _dedup(first + second)
-        else:
-            print(f"  WARNING: >= {SPLIT_THRESHOLD} records in a <= "
-                  f"{MIN_CHUNK} window; cannot split further.")
+    while True:
+        print(f"Fetching {start_ist} -> {end_ist} page={page}")
+        msg = _api_call(start_ist, end_ist, page=page)
+        print(f"  Got {len(msg)} records on page {page}.")
 
-    return msg
+        if not msg:
+            # Empty page = end of data
+            break
 
+        all_rows.extend(msg)
+
+        if len(msg) < PAGE_SIZE:
+            # Partial page = this was the last one
+            break
+
+        if page >= MAX_PAGES:
+            print(f"  WARNING: Hit MAX_PAGES cap of {MAX_PAGES} for window "
+                  f"{start_ist} -> {end_ist}. Window may contain more data "
+                  f"than fetched. Investigate immediately.")
+            break
+
+        # Full page -> more data may exist; respect rate limit and continue
+        page += 1
+        time.sleep(SLEEP_BETWEEN_CALLS)
+
+    return _dedup(all_rows)
 # ---------------- TRANSFORM ----------------
 
 def process_records(rows):
@@ -258,9 +286,10 @@ def run_pipeline():
 
     print(f"Fetching {last_time_ist} -> {end_time_ist} (5-min lag)")
 
-    # Single API call for the WHOLE window (probe-proven: no truncation).
-    # Recursion inside fetch_window_recursive is a defensive fallback only.
-    all_rows = fetch_window_recursive(last_time_ist, end_time_ist)
+    # Paginated fetch for the entire window. Loops through pages of up
+    # to PAGE_SIZE records each, fully covering the window regardless
+    # of volume.
+    all_rows = fetch_window_paginated(last_time_ist, end_time_ist)
 
     if not all_rows:
         print("No records returned by Mcube.")
