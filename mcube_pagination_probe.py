@@ -20,8 +20,8 @@ SLEEP = 21  # 3 hits/min => 21s between calls
 
 # Pick a window you believe had >3500 calls so we can actually exercise paging.
 # Multi-day windows from busy weekdays are safest. Adjust to your data.
-START = "2026-05-18 00:00:00"
-END   = "2026-05-22 23:59:59"
+START = "2026-05-14 00:00:00"
+END   = "2026-05-25 23:59:59"
 
 # Stop probing after this many pages even if pages keep coming back full.
 MAX_PAGES_TO_PROBE = 6
