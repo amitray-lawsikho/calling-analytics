@@ -19,14 +19,6 @@ MCUBE_TOKEN = os.getenv("MCUBE_TOKEN")
 # 3 API hits / min  ->  21s gap (5s safety)
 SLEEP_BETWEEN_CALLS = 21
 
-# --- Pagination ---
-# MCUBE confirmed the Historical Data API supports pagination via the
-# "page" parameter, returning up to 3500 records per page. We iterate
-# pages until a page returns fewer than PAGE_SIZE (= last page) or is
-# empty. This replaces the earlier recursive-window-split workaround,
-# which was a defensive measure from when truncation behaviour was unclear.
-PAGE_SIZE = 3000
-
 # Defensive ceiling on pages-per-window. 200 pages * 3500 = 700,000 records
 # in one window, which is far beyond any realistic 30-min-rewind run.
 MAX_PAGES = 200
@@ -138,35 +130,54 @@ def fetch_window_paginated(start_ist, end_ist):
     """
     Fetch a time window using MCUBE's pagination.
 
-    Iterates page=1, 2, 3, ... until:
-      - a page returns 0 records (no more data), OR
-      - a page returns fewer than PAGE_SIZE records (last page), OR
-      - we hit MAX_PAGES (defensive ceiling; should never trigger).
+    MCUBE's `page` parameter has non-standard semantics (verified empirically):
+      - page=1 returns ~3,500 records (offset 0)
+      - page=2 returns ~7,000 records (offset 3,500), disjoint from page 1
+      - page=3 returns ~5,856 records (offset 7,000), OVERLAPS page 2
+      - page=N likely starts at offset (N-1)*3500 with a variable size cap
+    Page sizes are NOT a reliable end-of-data signal, and consecutive pages
+    can overlap by thousands of records.
 
-    Rate-limited by SLEEP_BETWEEN_CALLS between page fetches
-    (MCUBE: 3 hits/min). A final _dedup pass removes any cross-page
-    duplicates in case MCUBE's pagination is not perfectly stable
-    at page boundaries.
+    Termination signal: a page that contributes zero new callids. This handles
+    both "past end of data" (empty response) and "fully redundant page"
+    (all callids already seen) uniformly.
 
-    This is lossless at any volume: 30k calls = ~9 pages, 100k = ~29 pages.
+    Cross-page dedup is done here as we accumulate, so the returned list
+    has no duplicates regardless of MCUBE's overlap behaviour.
     """
     all_rows = []
+    seen_ids = set()
     page = 1
 
     while True:
         print(f"Fetching {start_ist} -> {end_ist} page={page}")
         msg = _api_call(start_ist, end_ist, page=page)
-        print(f"  Got {len(msg)} records on page {page}.")
 
         if not msg:
-            # Empty page = end of data
+            print(f"  Page {page}: empty response, pagination complete.")
             break
 
-        all_rows.extend(msg)
+        # Count new vs dupe before extending
+        new_rows = []
+        dupes = 0
+        for r in msg:
+            cid = str(r.get("callid"))
+            if not cid:
+                continue
+            if cid in seen_ids:
+                dupes += 1
+            else:
+                seen_ids.add(cid)
+                new_rows.append(r)
 
-        if len(msg) < PAGE_SIZE:
-            # Partial page = this was the last one
+        print(f"  Page {page}: {len(msg)} records "
+              f"({len(new_rows)} new, {dupes} dupes).")
+
+        if not new_rows:
+            print(f"  Page {page}: no new records, pagination complete.")
             break
+
+        all_rows.extend(new_rows)
 
         if page >= MAX_PAGES:
             print(f"  WARNING: Hit MAX_PAGES cap of {MAX_PAGES} for window "
@@ -174,11 +185,10 @@ def fetch_window_paginated(start_ist, end_ist):
                   f"than fetched. Investigate immediately.")
             break
 
-        # Full page -> more data may exist; respect rate limit and continue
         page += 1
         time.sleep(SLEEP_BETWEEN_CALLS)
 
-    return _dedup(all_rows)
+    return all_rows
 # ---------------- TRANSFORM ----------------
 
 def process_records(rows):
