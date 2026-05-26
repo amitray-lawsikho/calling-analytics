@@ -1,8 +1,8 @@
 name: Master Data Pipeline
 
 on:
-  schedule:
-    - cron: '30 5,8,12,14 * * 1-5'
+#  schedule:
+#    - cron: '30 5,8,12,14 * * 1-5'
   workflow_dispatch:
 
 jobs:
