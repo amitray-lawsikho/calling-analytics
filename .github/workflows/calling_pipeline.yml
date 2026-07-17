@@ -46,19 +46,33 @@ jobs:
       env:
         BQ_CREDENTIALS: ${{ secrets.BQ_CREDENTIALS }}
 
-    # ---------------- 7. RUN OZONETEL PIPELINE ----------------
+    # ---------------- MANUAL CALLS PIPELINE ----------------
+    - name: Running Manual Calls Pipeline
+      run: python manual_calls_pipeline.py
+      env:
+        BQ_CREDENTIALS: ${{ secrets.BQ_CREDENTIALS }}
+
+    # ---------------- OZONETEL PIPELINE ----------------
     - name: Running Ozonetel Pipeline
       run: python ozonetel_pipeline.py
       env:
-        BQ_CREDENTIALS: ${{ secrets.BQ_CREDENTIALS }}
         OZONETEL_API_KEY: ${{ secrets.OZONETEL_API_KEY }}
         OZONETEL_USERNAME: ${{ secrets.OZONETEL_USERNAME }}
         TEAM_SHEET_URL: ${{ secrets.TEAM_SHEET_URL }}
 
-    # ---------------- 8. RUN ACEFONE PIPELINE ----------------
+    # ---------------- MCUBE PIPELINE ----------------     
+    - name: Run Mcube Pipeline
+      run: python mcube_pipeline.py
+      env:
+        MCUBE_TOKEN: ${{ secrets.MCUBE_TOKEN }}
+
+    # ---------------- ACEFONE PIPELINE ---------------
     - name: Running Acefone Pipeline
       run: python acefone_pipeline.py
       env:
-        BQ_CREDENTIALS: ${{ secrets.BQ_CREDENTIALS }}
         ACEFONE_API_KEY: ${{ secrets.ACEFONE_API_KEY }}
         ACEFONE_ACCOUNT_ID: ${{ secrets.ACEFONE_ACCOUNT_ID }}
+        
+    # ---------------- LSQ STAGE CHANGE PIPELINE ----------------
+    - name: Run stage_changed_truncate.py
+      run: python stage_changed_truncate.py
