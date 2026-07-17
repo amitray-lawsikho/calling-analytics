@@ -35,3 +35,9 @@ jobs:
       env:
         ACEFONE_API_KEY: ${{ secrets.ACEFONE_API_KEY }}
         ACEFONE_ACCOUNT_ID: ${{ secrets.ACEFONE_ACCOUNT_ID }}
+
+    - name: Debug Acefone
+      run: python debug_acefone.py
+      env:
+        ACEFONE_API_KEY: ${{ secrets.ACEFONE_API_KEY }}
+        ACEFONE_ACCOUNT_ID: ${{ secrets.ACEFONE_ACCOUNT_ID }}
