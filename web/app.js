@@ -95,20 +95,20 @@ function chart(id, cfg) {
   S.charts[id] = new Chart(el, cfg);
 }
 const hours = (sec) => Math.round((sec / 3600) * 10) / 10;
-function trendConfig(labels, calls, calls3, talk, extraLine) {
-  const sets = [
-    { type: "bar", label: "Total calls", data: calls, backgroundColor: css("--gold"), borderRadius: 4, maxBarThickness: 34, yAxisID: "y", order: 2 },
-    { type: "bar", label: "Calls > 3 mins", data: calls3, backgroundColor: css("--c2"), borderRadius: 4, maxBarThickness: 34, yAxisID: "y", order: 2 },
-    { type: "line", label: "Talk time > 3 mins (hours)", data: talk, borderColor: css("--c3"), backgroundColor: css("--c3"), tension: .3, pointRadius: 3, yAxisID: "y2", order: 1 },
-  ];
-  if (extraLine) sets.push({ type: "line", label: extraLine.label, data: extraLine.data, borderColor: css("--c5"), backgroundColor: css("--c5"),
-    borderDash: [5, 4], tension: .3, pointRadius: 2, yAxisID: "y3", order: 1 });
-  return { data: { labels, datasets: sets },
-    options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 18 } }, interaction: { mode: "index", intersect: false },
-      plugins: { legend: { position: "bottom" }, barLabels: { dataset: 0, labels: calls.map((v) => (v ? num(v) : "")) } },
-      scales: { x: { grid: { display: false } }, y: { beginAtZero: true, title: { display: true, text: "Calls" } },
-        y2: { beginAtZero: true, position: "right", grid: { display: false }, title: { display: true, text: "Hours" } },
-        ...(extraLine ? { y3: { display: false, beginAtZero: true, max: 100 } } : {}) } } };
+/* one bar per period = talk time of calls > 3 mins; the number above it = total calls; hover = connected / not connected split */
+function trendConfig(labels, g) {
+  const dur = g.map(([, o]) => hours(o.dur_3m)), calls = g.map(([, o]) => o.total_calls);
+  return { type: "bar",
+    data: { labels, datasets: [{ label: "Call duration > 3 mins", data: dur, backgroundColor: css("--gold"), borderRadius: 4, maxBarThickness: 40 }] },
+    options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 20 } },
+      plugins: { legend: { display: false }, barLabels: { dataset: 0, labels: calls.map((v) => (v ? num(v) : "")) },
+        tooltip: { callbacks: {
+          label: (c) => ` Call duration > 3 mins: ${fmtHm(g[c.dataIndex][1].dur_3m)}`,
+          afterLabel: (c) => { const o = g[c.dataIndex][1];
+            return [` Total calls: ${num(o.total_calls)}`, ` Connected: ${num(o.answered)} (${pur(o.answered, o.total_calls)}%)`,
+              ` Not connected: ${num(o.missed)}`, ` Calls > 3 mins: ${num(o.calls_3m)}`]; } } } },
+      scales: { x: { grid: { display: false } },
+        y: { beginAtZero: true, ticks: { callback: (v) => `${v}h` }, title: { display: true, text: "Call duration > 3 mins" } } } } };
 }
 const GRAINS = { day: "Day", week: "Week", month: "Month" };
 function grainKey(d, g) {
@@ -272,7 +272,7 @@ function draw(r, rep, uniq, prep, puniq, daily) {
     </section>
     <h4 class="section-h">Remarks summary</h4>
     <section class="card"><p class="muted small" style="margin:0 0 10px">Callers flagged at least once in these dates · click one to show only those callers in the table</p>${chips}</section>
-    ${daily ? `<h4 class="section-h">Daily trend</h4><section class="card"><div class="card-h"><h3>Calls and talk time</h3>${segHtml("grain", S.grain)}</div>
+    ${daily ? `<h4 class="section-h">Daily trend</h4><section class="card"><div class="card-h"><h3>Call duration > 3 mins</h3><span class="muted small">Number above each bar = total calls · hover for connected / not connected</span>${segHtml("grain", S.grain)}</div>
       <div class="chart-box" style="height:340px"><canvas id="ch-trend"></canvas></div></section>` : ""}
     <h4 class="section-h">Team summary</h4>
     <section class="card"><p class="muted small" style="margin:0 0 10px">Click a team to show only that team</p><div class="table-wrap">${teamHtml}</div></section>
@@ -317,9 +317,8 @@ function drawBoard() {
 }
 
 function drawTrend(daily) {
-  const g = byGrain(daily, S.grain, ["total_calls", "calls_3m", "dur_3m", "answered"]);
-  chart("ch-trend", trendConfig(g.map(([k]) => grainLabel(k, S.grain)), g.map(([, o]) => o.total_calls), g.map(([, o]) => o.calls_3m),
-    g.map(([, o]) => hours(o.dur_3m)), { label: "Pick up %", data: g.map(([, o]) => pur(o.answered, o.total_calls)) }));
+  const g = byGrain(daily, S.grain, ["total_calls", "calls_3m", "dur_3m", "answered", "missed"]);
+  chart("ch-trend", trendConfig(g.map(([k]) => grainLabel(k, S.grain)), g));
 }
 
 /* ---------- caller panel ---------- */
@@ -340,7 +339,7 @@ async function openCaller(name) {
     cached("ca_caller", { p_from: r.pf, p_to: r.pt, p_caller: name, p_hours: false })]);
   if (S.caller !== name) return;
   const a = sumDays(cur.days, cur.stage), b = sumDays(prv.days, prv.stage);
-  const k = (label, v, c, p, f = num) => `<div class="kpi"><div class="k">${label}</div><div class="v">${v}</div><div class="d">${chHtml(change(c, p))} vs ${esc(f(p))}</div></div>`;
+  const k = (label, v, c, p, f = num) => !c ? "" : `<div class="kpi"><div class="k">${label}</div><div class="v">${v}</div><div class="d">${chHtml(change(c, p))} vs ${esc(f(p))}</div></div>`;
   const stageBy = new Map(cur.stage.map((s) => [String(s.call_date).slice(0, 10), s]));
   const hrs = cur.hours || [];
   const parts = PARTS.map(([label, f]) => { const h = hrs.filter((x) => f(+x.hr)), s = (kk) => h.reduce((t, x) => t + (+x[kk] || 0), 0);
@@ -353,8 +352,8 @@ async function openCaller(name) {
     return `<tr><td class="l nw">${short(dd)}</td><td class="l nw">${esc((d.io_line || "-").replace(/^\d\d\/\d\d: /, ""))}</td><td class="num">${num(+d.total_calls)}</td>
       <td class="l nw">${+d.answered} Ans / ${+d.missed} Unans</td><td class="num">${pur(+d.answered, +d.total_calls)}%</td><td class="num">${num(+d.calls_3m)}</td>
       <td class="num">${num(+d.calls_15_20)}</td><td class="num">${num(+d.calls_20p)}</td><td class="num">${fmtHm(+d.dur_3m)}</td><td class="num">${fmtHm(+d.prod_sec)}</td>
-      <td class="l nw">${breaksTxt(+d.break_count, +d.break_shown)}</td><td class="l wide">${esc((d.break_timing || "-").replace(/^\d\d\/\d\d:\n?/, "").trim())}</td>
-      <td class="l">${(d.issues || []).map((i) => `<span class="tag bad">${esc(i)}</span>`).join("") || "None"}</td>
+      <td class="l nw" ${d.break_timing ? `title="${esc(d.break_timing.replace(/^\d\d\/\d\d:\n?/, "").trim())}"` : ""}>${breaksTxt(+d.break_count, +d.break_shown)}${d.break_timing ? " ⓘ" : ""}</td>
+      <td class="l nw">${(d.issues || []).map((i) => `<span class="tag bad">${esc(i)}</span>`).join("") || "None"}</td>
       <td class="num">${num(+st.followup || 0)}</td><td class="num">${num(+st.discovery || 0)}</td><td class="num">${num(+st.roadmap || 0)}</td></tr>`; }).join("");
   $("d-body").innerHTML = `
     <section class="kpis" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr))">
@@ -370,16 +369,16 @@ async function openCaller(name) {
       <div class="chart-box" style="height:230px;margin-top:12px"><canvas id="d-hours"></canvas></div>${hrsNote}</section>
     <section class="card"><h3>Day by day</h3><div class="table-wrap"><table class="agent-table"><thead><tr><th class="l">Date</th><th class="l">In / out</th>
       <th>Total calls</th><th class="l">Call status</th><th>Pick up %</th><th>Calls > 3 mins</th><th>15–20 mins</th><th>20+ mins</th><th>Duration > 3 mins</th>
-      <th>Productive hours</th><th class="l">Breaks</th><th class="l">Break timings</th><th class="l">Remarks</th><th>Follow ups</th><th>Discovery</th><th>Roadmaps</th></tr></thead>
-      <tbody>${dayRows || `<tr><td class="l muted" colspan="16">No calls in these dates.</td></tr>`}</tbody></table></div></section>
+      <th>Productive hours</th><th class="l" title="Hover a day's breaks for the exact times">Breaks</th><th class="l">Remarks</th><th>Follow ups</th><th>Discovery</th><th>Roadmaps</th></tr></thead>
+      <tbody>${dayRows || `<tr><td class="l muted" colspan="15">No calls in these dates.</td></tr>`}</tbody></table></div></section>
     <section class="card"><h3>Dialler split</h3><div class="table-wrap"><table class="agent-table"><tbody>
       <tr><td class="l">🔵 Acefone</td><td class="num">${num(s2("n_acefone"))}</td></tr><tr><td class="l">🟠 Ozonetel</td><td class="num">${num(s2("n_ozonetel"))}</td></tr>
       <tr><td class="l">🟢 MCube</td><td class="num">${num(s2("n_mcube"))}</td></tr>
       <tr><td class="l">✏️ Manual</td><td class="num">${num(s2("n_manual"))} calls · ${fmtHm(s2("manual_dur"))}${approvals !== "—" ? ` · approved by ${esc(approvals)}` : ""}</td></tr>
     </tbody></table></div></section>`;
   const drawD = () => {
-    const g = byGrain(cur.days, S.dgrain, ["total_calls", "calls_3m", "dur_3m", "answered"]);
-    chart("d-trend", trendConfig(g.map(([kk]) => grainLabel(kk, S.dgrain)), g.map(([, o]) => o.total_calls), g.map(([, o]) => o.calls_3m), g.map(([, o]) => hours(o.dur_3m))));
+    const g = byGrain(cur.days, S.dgrain, ["total_calls", "calls_3m", "dur_3m", "answered", "missed"]);
+    chart("d-trend", trendConfig(g.map(([kk]) => grainLabel(kk, S.dgrain)), g));
   };
   drawD();
   $("d-grain").onclick = (e) => { const bt = e.target.closest("button[data-g]"); if (!bt) return; S.dgrain = bt.dataset.g;
