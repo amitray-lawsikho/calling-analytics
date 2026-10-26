@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="styles.css">
   <script>try { const t = localStorage.getItem("ca-theme"); if (t) document.documentElement.dataset.theme = t; } catch (_) {}</script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="config.js"></script>
 </head>
 <body>
@@ -93,6 +94,13 @@
       <div id="busy" class="busy" hidden><span class="spin"></span>Loading…</div>
       <div id="content"></div>
     </main>
+
+    <aside id="drawer" class="drawer wide" hidden>
+      <div class="drawer-h"><div><p class="eyebrow" id="d-kind">Caller</p><h2 id="d-name"></h2></div>
+        <div class="drawer-act"><button id="d-cdr" class="btn sm">📥 CDR</button><button id="d-close" class="btn ghost sm">✕</button></div></div>
+      <p id="d-sub" class="muted small"></p>
+      <div id="d-body"></div>
+    </aside>
   </div>
   <script src="app.js"></script>
 </body>

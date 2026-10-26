@@ -187,6 +187,7 @@ def day_metrics(calls: list[dict], c_date: date, today: date) -> dict:
         "calls_20p": sum(1 for c in calls if c["call_duration"] >= 1200),
         "dur_3m": int(sum(c["call_duration"] for c in q)),
         "io_line": None, "break_line": None, "break_timing": None, "issues": [], "break_sec": 0, "prod_sec": DAY_SEC,
+        "break_count": 0, "break_shown": 0,
         "n_acefone": sum(1 for c in calls if c["src"] == "A"), "n_ozonetel": sum(1 for c in calls if c["src"] == "O"),
         "n_mcube": sum(1 for c in calls if c["src"] == "M"), "n_manual": sum(1 for c in calls if c["src"] == "N"),
         "manual_dur": int(sum(c["call_duration"] for c in calls if c["src"] == "N")),
@@ -251,7 +252,8 @@ def day_metrics(calls: list[dict], c_date: date, today: date) -> dict:
         issues.append("Excessive Breaks")
     if prod < 18000:
         issues.append("Less Productive")
-    out.update({"issues": issues, "break_sec": int(round(brk)), "prod_sec": int(round(prod))})
+    out.update({"issues": issues, "break_sec": int(round(brk)), "prod_sec": int(round(prod)),
+                "break_count": len(breaks), "break_shown": int(round(sum(b[2] for b in breaks)))})
     return out
 
 

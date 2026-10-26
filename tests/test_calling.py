@@ -89,6 +89,17 @@ def test_metrics_match_streamlit():
                     assert str(rv) == str(v), (seed, r["CALLER"], k, rv, v)
 
 
+def test_break_summary():
+    calls, today = make_calls(3)
+    d = calls[0]["call_date"]
+    day = [{**c, "start": call_times(c["src"], c["call_datetime"], c["call_duration"])[0],
+            "end": call_times(c["src"], c["call_datetime"], c["call_duration"])[1]} for c in calls if c["call_owner"] == "Asha Rao" and c["call_date"] == d]
+    m = day_metrics(day, d, today)
+    if m["break_line"]:
+        n = int(m["break_line"].split(": ")[1].split(" breaks")[0])
+        assert n == m["break_count"] and fmt_hm(m["break_shown"]) == m["break_line"].rsplit(": ", 1)[1]
+
+
 def test_format_and_ids():
     assert fmt_hm(0) == "0h 0m" and fmt_hm(90) == "0h 2m" and fmt_hm(30) == "0h 0m" and fmt_hm(3600 + 150) == "1h 2m"
     assert hid("ACE", "1") == hid("ACE", "1") != hid("ACE", "2")
