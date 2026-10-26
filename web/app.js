@@ -2,7 +2,7 @@
    ca_cdr / ca_stage_export. Numbers follow the Streamlit calling dashboard exactly (docs/definitions.md); the pipeline pre-computes each caller's day. */
 const sb = supabase.createClient(CA_CONFIG.supabaseUrl, CA_CONFIG.supabaseKey);
 const $ = (id) => document.getElementById(id);
-const S = { meta: null, seq: 0, sel: { team: new Set(), vertical: new Set() }, last: null, preset: null, charts: {},
+const S = { meta: null, seq: 0, sel: { team: new Set(), vertical: new Set(), caller: new Set() }, last: null, preset: null, charts: {},
   sort: { k: "raw_dur_sec", dir: -1 }, issue: null, grain: "day", dgrain: "day", rows: [], caller: null };
 
 /* ---------- format (Python-identical) ---------- */
@@ -68,7 +68,7 @@ const prevText = (r) => `${nice(r.pf)} – ${nice(r.pt)}`;
 async function rpc(fn, args) { const { data, error } = await sb.rpc(fn, args); if (error) throw error; return data; }
 function filt() {
   return { p_teams: S.sel.team.size ? [...S.sel.team] : null, p_verticals: S.sel.vertical.size ? [...S.sel.vertical] : null,
-    p_search: $("search").value.trim() || null };
+    p_search: null, p_callers: S.sel.caller.size ? [...S.sel.caller] : null };
 }
 const CACHE = new Map();
 function cached(fn, args) { const k = fn + JSON.stringify(args); if (!CACHE.has(k)) CACHE.set(k, rpc(fn, args).catch((e) => { CACHE.delete(k); throw e; })); return CACHE.get(k); }
@@ -292,7 +292,7 @@ function draw(r, rep, uniq, prep, puniq, daily) {
   $("content").onclick = (e) => {
     const chip = e.target.closest(".chip"); if (chip) { S.issue = chip.dataset.i || null; document.querySelectorAll("#chips .chip").forEach((c) => c.classList.toggle("on", (c.dataset.i || null) === S.issue)); drawBoard(); return; }
     const g = e.target.closest("#grain button[data-g]"); if (g) { S.grain = g.dataset.g; document.querySelectorAll("#grain button").forEach((b) => b.classList.toggle("on", b === g)); drawTrend(daily); return; }
-    const team = e.target.closest("tr[data-team]"); if (team) { S.sel.team = new Set([team.dataset.team]); msButton("team"); render(); return; }
+    const team = e.target.closest("tr[data-team]"); if (team) { S.sel.team = new Set([team.dataset.team]); buildOptions(); render(); return; }
     const th = e.target.closest("#board th[data-k]");
     if (th) { const k = th.dataset.k; S.sort = { k, dir: S.sort.k === k ? -S.sort.dir : (k === "CALLER" || k === "TEAM" ? 1 : -1) }; drawBoard(); return; }
     const c = e.target.closest("[data-c]"); if (c) openCaller(c.dataset.c);
@@ -452,9 +452,19 @@ async function downloadManual() {
 }
 
 /* ---------- multi-select filters (with search) ---------- */
-const MS = { team: { all: "All teams", one: "team", opts: [] }, vertical: { all: "All verticals", one: "vertical", opts: [] } };
+const MS = { vertical: { all: "All verticals", one: "vertical", opts: [] }, team: { all: "All teams", one: "team", opts: [] },
+  caller: { all: "All callers", one: "caller", opts: [] } };
 let msTimer;
-function msChanged() { clearTimeout(msTimer); msTimer = setTimeout(render, 450); }
+function msChanged() { clearTimeout(msTimer); msTimer = setTimeout(() => { buildOptions(); render(); }, 450); }
+/* team list follows the chosen verticals; caller list follows the chosen verticals and teams */
+function buildOptions() {
+  const V = S.sel.vertical, T = S.sel.team, cs = S.meta?.callers || [];
+  MS.vertical.opts = S.meta?.verticals || [];
+  MS.team.opts = V.size ? [...new Set(cs.filter((c) => V.has(c.vertical)).map((c) => c.team).filter(Boolean))].sort() : (S.meta?.teams || []);
+  MS.caller.opts = cs.filter((c) => (!V.size || V.has(c.vertical)) && (!T.size || T.has(c.team))).map((c) => c.caller);
+  MS.caller.sub = Object.fromEntries(cs.map((c) => [c.caller, c.team || "Others"]));
+  for (const id of Object.keys(MS)) { msButton(id); const box = $(`ms-${id}`); if (box && !box.querySelector(".ms-pop").hidden) msList(id); }
+}
 function msButton(id) {
   const set = S.sel[id], m = MS[id], b = document.querySelector(`#ms-${id} .ms-btn`); if (!b) return;
   b.textContent = !set.size ? m.all : set.size === 1 ? [...set][0] : `${set.size} ${m.one}s selected`;
@@ -464,7 +474,7 @@ function msList(id) {
   const box = $(`ms-${id}`), q = box.querySelector(".ms-q").value.trim().toLowerCase(), set = S.sel[id];
   const hits = MS[id].opts.filter((o) => !q || o.toLowerCase().includes(q));
   box.querySelector(".ms-list").innerHTML = [...hits.filter((o) => set.has(o)), ...hits.filter((o) => !set.has(o))].map((o) =>
-    `<label class="ms-item"><input type="checkbox" value="${esc(o)}" ${set.has(o) ? "checked" : ""}><span>${esc(o)}</span></label>`).join("")
+    `<label class="ms-item"><input type="checkbox" value="${esc(o)}" ${set.has(o) ? "checked" : ""}><span>${esc(o)}</span>${MS[id].sub ? `<small>${esc(MS[id].sub[o] || "")}</small>` : ""}</label>`).join("")
     || `<div class="ms-more">No match</div>`;
   box._hits = hits;
 }
@@ -487,7 +497,7 @@ document.addEventListener("click", (e) => { if (!e.target.closest(".ms")) docume
 /* ---------- dates / presets ---------- */
 function markPreset(p) { S.preset = p; document.querySelectorAll("#presets button").forEach((b) => b.classList.toggle("on", b.dataset.p === p)); }
 function setPreset(p) { const [f, t] = preset(p); $("from").value = f; $("to").value = t; markPreset(p); render(); }
-function clearFilters() { S.issue = null; S.sel.team.clear(); S.sel.vertical.clear(); $("search").value = ""; Object.keys(MS).forEach(msButton); setPreset("today"); }
+function clearFilters() { S.issue = null; S.sel.team.clear(); S.sel.vertical.clear(); S.sel.caller.clear(); buildOptions(); setPreset("today"); }
 
 /* ---------- freshness + update button ---------- */
 function showFresh(run) {
@@ -528,7 +538,7 @@ $("theme").addEventListener("click", () => {
 /* ---------- auth + start ---------- */
 async function loadMeta() {
   S.meta = await rpc("ca_meta", {});
-  MS.team.opts = S.meta?.teams || []; MS.vertical.opts = S.meta?.verticals || [];
+  buildOptions();
   if (S.meta?.min_date) { $("from").min = $("to").min = S.meta.min_date; }
   showFresh(S.meta?.last_run);
 }
@@ -560,7 +570,6 @@ $("signout").addEventListener("click", async () => { await sb.auth.signOut(); lo
 /* ---------- events ---------- */
 document.querySelectorAll("#presets button").forEach((b) => b.addEventListener("click", () => setPreset(b.dataset.p)));
 ["from", "to"].forEach((id) => $(id).addEventListener("change", () => { markPreset(null); render(); }));
-let searchTimer; $("search").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(render, 500); });
 $("clear-filters").addEventListener("click", clearFilters);
 $("update").addEventListener("click", update);
 $("menu").addEventListener("click", () => {
