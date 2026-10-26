@@ -171,6 +171,7 @@ def main(argv: list[str] | None = None) -> int:
         detail["summary_days"] = len(days)
         detail["agent_day_rows"] = build_days(store, days, tmap, today)
         detail["stage_day_rows"] = store.rpc("ca_rebuild_stage_day", {"p_from": keep_from.isoformat()})
+        detail["day_unique_rows"] = store.rpc("ca_rebuild_day_unique", {"p_from": min(days).isoformat()})
         detail["trimmed"] = trimmed
         if errors:
             detail["warnings"] = errors

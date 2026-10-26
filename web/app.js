@@ -110,16 +110,18 @@ function trendConfig(labels, g) {
       scales: { x: { grid: { display: false } },
         y: { beginAtZero: true, ticks: { callback: (v) => `${v}h` }, title: { display: true, text: "Call duration > 3 mins" } } } } };
 }
-const GRAINS = { day: "Day", week: "Week", month: "Month" };
+const GRAINS = { day: "Day", part: "Part of month", month: "Month" };
 function grainKey(d, g) {
   if (g === "day") return d;
   if (g === "month") return d.slice(0, 8) + "01";
-  return addDays(d, -((D(d).getUTCDay() + 6) % 7));
+  const day = +d.slice(8, 10);   // part of month: days 1–10, 11–20, 21–end
+  return d.slice(0, 8) + (day <= 10 ? "01" : day <= 20 ? "11" : "21");
 }
 function grainLabel(k, g) {
   if (g === "day") return short(k);
   if (g === "month") return D(k).toLocaleDateString("en-IN", { month: "short", year: "numeric", timeZone: "UTC" });
-  return `Wk ${short(k)}`;
+  const day = +k.slice(8, 10), end = day === 21 ? daysIn(+k.slice(0, 4), +k.slice(5, 7)) : day + 9;
+  return `${day}–${end} ${D(k).toLocaleDateString("en-IN", { month: "short", timeZone: "UTC" })}`;
 }
 function byGrain(rows, g, fields) {
   const m = new Map();
