@@ -1,0 +1,39 @@
+name: Refresh calling data
+
+on:
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Rebuild every summary day still covered by stored calls"
+        default: "false"
+      backfill:
+        description: "One time: copy the call history from BigQuery first"
+        default: "false"
+
+concurrency:
+  group: calling-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+      - name: Refresh
+        run: python -m etl.refresh --full "${{ inputs.full }}" --backfill "${{ inputs.backfill }}"
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          BQ_CREDENTIALS: ${{ secrets.BQ_CREDENTIALS }}
+          ACEFONE_API_KEY: ${{ secrets.ACEFONE_API_KEY }}
+          ACEFONE_ACCOUNT_ID: ${{ secrets.ACEFONE_ACCOUNT_ID }}
+          MCUBE_TOKEN: ${{ secrets.MCUBE_TOKEN }}
+          OZONETEL_API_KEY: ${{ secrets.OZONETEL_API_KEY }}
+          OZONETEL_USERNAME: ${{ secrets.OZONETEL_USERNAME }}
+          TEAM_SHEET_URL: ${{ secrets.TEAM_SHEET_URL }}

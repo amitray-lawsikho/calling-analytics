@@ -1,9 +1,6 @@
 pandas
 pytz
-google-cloud-bigquery
-google-api-python-client
-google-auth
-pyarrow
 requests
+google-cloud-bigquery
 db-dtypes
-pandas-gbq
+pytest

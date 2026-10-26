@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Calling Analytics Dashboard</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%2306100b' stroke='%2334d399' stroke-width='3'/%3E%3Cpath d='M22 18c2 0 4 5 4 7s-3 3-3 5 6 10 9 11 3-3 5-3 7 2 7 4-3 6-6 6c-10 0-22-13-22-24 0-3 4-6 6-6z' fill='%2334d399'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script>try { const t = localStorage.getItem("ca-theme"); if (t) document.documentElement.dataset.theme = t; } catch (_) {}</script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="config.js"></script>
+</head>
+<body>
+  <!-- Sign in -->
+  <section id="auth" class="auth" hidden>
+    <div class="auth-art">
+      <div class="monogram lg"><svg viewBox="0 0 24 24" style="width:28px;height:28px"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg></div>
+      <p class="eyebrow">LawSikho · Skill Arbitrage</p>
+      <h1 class="auth-title">Calling Analytics</h1>
+      <div class="rule"><span></span><i>◆</i><span></span></div>
+      <p class="auth-lead">Every dialled call from Acefone, MCube, Ozonetel and manual entries, with LSQ stage changes, per caller and per team.</p>
+      <ul class="auth-points">
+        <li><b>Performance</b> calls, talk time, breaks and productive hours</li>
+        <li><b>Stage changes</b> discovery, roadmap and follow-ups done</li>
+        <li><b>Downloads</b> the same CDR and stage-change files as before</li>
+      </ul>
+    </div>
+    <div class="auth-panel">
+      <div class="auth-card">
+        <p class="eyebrow">Welcome back</p>
+        <h2 class="auth-h">Sign in</h2>
+        <p class="muted small">Use your @lawsikho.in work email.</p>
+        <form id="auth-form">
+          <label>Email <input id="auth-email" type="email" autocomplete="username" placeholder="name@lawsikho.in" required></label>
+          <label>Password <input id="auth-pass" type="password" autocomplete="current-password" minlength="8" placeholder="8+ characters" required></label>
+          <button type="submit" class="btn primary block">Sign in</button>
+          <button type="button" id="auth-signup" class="btn ghost block">First time here? Create your account</button>
+        </form>
+        <p id="auth-msg" class="msg"></p>
+        <p class="credit-auth">Designed and developed by Amit Ray · amitray@lawsikho.in</p>
+      </div>
+    </div>
+  </section>
+
+  <div id="app" class="shell" hidden>
+    <aside class="side" id="side">
+      <div class="brand"><span class="monogram"><svg viewBox="0 0 24 24" style="width:20px;height:20px"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg></span>
+        <span class="brand-t">Calling Analytics<small>Dashboard</small></span></div>
+      <nav>
+        <a href="#dynamic" data-page="dynamic" class="on"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 15l4-4 3 3 5-6"/></svg>Dynamic Dashboard</a>
+      </nav>
+      <div class="side-foot">
+        <button id="update" class="btn primary block"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg>Update data</button>
+        <div id="update-msg" class="small muted"></div>
+        <div id="fresh" class="small muted"></div>
+        <div class="side-row">
+          <button id="theme" class="btn ghost sm"></button>
+          <button id="signout" class="btn ghost sm">Sign out</button>
+        </div>
+        <div class="credit">Designed and developed by Amit Ray<br><a href="mailto:amitray@lawsikho.in">amitray@lawsikho.in</a></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="page-h">
+        <button id="menu" class="btn ghost sm icon" title="Show / hide the sidebar" aria-label="Show or hide the sidebar"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+        <div>
+          <h1>Calling Metrics</h1>
+          <p id="page-sub" class="muted small"></p>
+          <div class="badges"><span class="badge-live"><span class="pulse"></span>Ozonetel, Acefone &amp; MCube</span><span class="badge-live" id="updated-badge">Updated at –</span></div>
+        </div>
+      </header>
+
+      <section class="filters card">
+        <div class="filters-top">
+          <div class="seg" id="presets">
+            <button data-p="latest" title="The latest day with data">Latest day</button><button data-p="today">Today</button><button data-p="yesterday">Yesterday</button>
+            <button data-p="week">This week</button><button data-p="lastweek">Last week</button>
+            <button data-p="month">This month</button><button data-p="lastmonth">Last month</button>
+          </div>
+          <button type="button" id="clear-filters" class="btn ghost sm" title="Latest day and no filters">✕ Clear filters</button>
+        </div>
+        <div class="filter-row">
+          <label>From <input type="date" id="from"></label>
+          <label>To <input type="date" id="to"></label>
+          <div class="lbl"><span>Team</span><div class="ms" id="ms-team"></div></div>
+          <div class="lbl"><span>Vertical</span><div class="ms" id="ms-vertical"></div></div>
+          <label>Search caller name <input type="search" id="search" class="search" placeholder="Type part of a name"></label>
+        </div>
+      </section>
+
+      <div id="busy" class="busy" hidden><span class="spin"></span>Loading…</div>
+      <div id="content"></div>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
