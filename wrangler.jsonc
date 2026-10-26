@@ -1,0 +1,6 @@
+{
+  // Cloudflare Workers static site: serves web/ at https://calling-analytics.amitray.workers.dev
+  "name": "calling-analytics",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./web" }
+}
