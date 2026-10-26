@@ -305,8 +305,9 @@ function draw(r, rep, uniq, prep, puniq, daily) {
   if ($("dl-manual")) $("dl-manual").onclick = downloadManual;
 }
 
+const shownInTable = (x) => x["TOTAL CALLS"] > 0 && x.raw_dur_sec > 0;   // 0 calls or 0 duration > 3 mins: not listed
 function drawBoard() {
-  let rows = S.rows.filter((x) => !S.issue || x._issues.includes(S.issue));
+  let rows = S.rows.filter((x) => shownInTable(x) && (!S.issue || x._issues.includes(S.issue)));
   const { k, dir } = S.sort;
   rows = [...rows].sort((a, b) => { const x = a[k], y = b[k]; return typeof x === "string" ? dir * String(x).localeCompare(String(y)) : dir * ((x ?? -1) - (y ?? -1)); });
   const total = totalsRow(rows);
@@ -445,7 +446,7 @@ async function downloadStage() {
 }
 
 async function downloadAgent() {   // all 18 Streamlit columns, ranked by call duration, TOTAL row last
-  const rows = S.rows.filter((x) => !S.issue || x._issues.includes(S.issue));
+  const rows = S.rows.filter((x) => shownInTable(x) && (!S.issue || x._issues.includes(S.issue)));
   save("Agent_Performance_Table.csv", [csvLine(FULL_COLS), ...[...rows, totalsRow(rows)].map((x) => csvLine(FULL_COLS.map((c) => x[c])))]);
 }
 async function downloadManual() {
