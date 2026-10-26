@@ -10,7 +10,6 @@ PROJECT_ID  = "studious-apex-488820-c3"
 DATASET     = "crm_dashboard"
 TABLE       = "stage_changed"
 TABLE_ID    = f"{PROJECT_ID}.{DATASET}.{TABLE}"
-LOG_TABLE   = f"{PROJECT_ID}.crm_scheduled_results.MASTER_QUERY_REFRESH"
 
 SHEET_URL = (
     "https://docs.google.com/spreadsheets/d/e/"
@@ -137,17 +136,9 @@ def build_stage_changed_by(row: pd.Series, owner_map: dict) -> str:
 
 # ─── LOG ─────────────────────────────────────────────────
 def log_pipeline(rows: int):
-    ist_now = datetime.now(india)
-    df_log  = pd.DataFrame([{
-        "run_date":       ist_now.date(),
-        "pipeline_name":  "LSQ_STAGE",
-        "run_timestamp":  ist_now.strftime("%d/%m/%Y %I:%M %p"),
-        "rows_inserted":  int(rows),
-    }])
-    client.load_table_from_dataframe(
-        df_log, LOG_TABLE,
-        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
-    ).result()
+    # Run log now goes to the GitHub Actions output only (BigQuery dataset crm_scheduled_results removed 26 Oct 2026)
+    print("[pipeline log]", rows, flush=True)
+    return
 
 
 # ─── MAIN ────────────────────────────────────────────────

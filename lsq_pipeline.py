@@ -15,7 +15,6 @@ SECRET_KEY = os.environ["LSQ_SECRET_KEY"]
 PROJECT_ID = "studious-apex-488820-c3"
 DATASET = "crm_dashboard"
 TABLE = "lsq_leads"
-LOG_TABLE = f"{PROJECT_ID}.crm_scheduled_results.MASTER_QUERY_REFRESH"
 table_id = f"{PROJECT_ID}.{DATASET}.{TABLE}"
 
 # TIMEZONE
@@ -25,21 +24,10 @@ date_60_days = (now - timedelta(days=59)).strftime("%Y-%m-%d %H:%M:%S")
 
 # LOG FUNCTION
 def log_pipeline(pipeline_name, rows):
-    ist_now = datetime.now(india_tz)
+    # Run log now goes to the GitHub Actions output only (BigQuery dataset crm_scheduled_results removed 26 Oct 2026)
+    print("[pipeline log]", pipeline_name, rows, flush=True)
+    return
 
-    df_log = pd.DataFrame([{
-        "run_date": ist_now.date(),
-        "pipeline_name": pipeline_name,
-        "run_timestamp": ist_now.strftime("%d/%m/%Y %I:%M %p"),
-        "rows_inserted": int(rows)
-    }])
-
-    job = client.load_table_from_dataframe(
-        df_log,
-        LOG_TABLE,
-        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
-    )
-    job.result()
 
 # =========================
 # FETCH USERS (OWNER MAP)

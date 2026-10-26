@@ -10,7 +10,6 @@ from google.cloud import bigquery
 PROJECT_ID = "studious-apex-488820-c3"
 DATASET = "crm_dashboard"
 TABLE = "acefone_calls"
-LOG_TABLE = f"{PROJECT_ID}.crm_scheduled_results.MASTER_QUERY_REFRESH"
 TABLE_ID = f"{PROJECT_ID}.{DATASET}.{TABLE}"
 
 ACE_API_KEY = os.getenv("ACEFONE_API_KEY")
@@ -193,14 +192,10 @@ def load_to_bigquery(df):
     client.load_table_from_dataframe(df, TABLE_ID, job_config=job_config).result()
 
 def log_pipeline(pipeline_name, rows):
-    ist_now = datetime.now(india)
-    log_data = [{
-        "run_date": ist_now.date(),
-        "pipeline_name": pipeline_name,
-        "run_timestamp": ist_now.strftime("%d/%m/%Y %I:%M %p"),
-        "rows_inserted": int(rows)
-    }]
-    client.load_table_from_dataframe(pd.DataFrame(log_data), LOG_TABLE).result()
+    # Run log now goes to the GitHub Actions output only (BigQuery dataset crm_scheduled_results removed 26 Oct 2026)
+    print("[pipeline log]", pipeline_name, rows, flush=True)
+    return
+
 
 # ---------------- MAIN ----------------
 
