@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Calling Analytics Dashboard</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%2306100b' stroke='%2334d399' stroke-width='3'/%3E%3Cpath d='M22 18c2 0 4 5 4 7s-3 3-3 5 6 10 9 11 3-3 5-3 7 2 7 4-3 6-6 6c-10 0-22-13-22-24 0-3 4-6 6-6z' fill='%2334d399'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230a0a0b' stroke='%2334d399' stroke-width='3'/%3E%3Cpath d='M22 18c2 0 4 5 4 7s-3 3-3 5 6 10 9 11 3-3 5-3 7 2 7 4-3 6-6 6c-10 0-22-13-22-24 0-3 4-6 6-6z' fill='%2334d399'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <script>try { const t = localStorage.getItem("ca-theme"); if (t) document.documentElement.dataset.theme = t; } catch (_) {}</script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
@@ -69,18 +69,17 @@
         <div>
           <h1>Calling Metrics</h1>
           <p id="page-sub" class="muted small"></p>
-          <div class="badges"><span class="badge-live"><span class="pulse"></span>Ozonetel, Acefone &amp; MCube</span><span class="badge-live" id="updated-badge">Updated at –</span></div>
         </div>
       </header>
 
       <section class="filters card">
         <div class="filters-top">
           <div class="seg" id="presets">
-            <button data-p="latest" title="The latest day with data">Latest day</button><button data-p="today">Today</button><button data-p="yesterday">Yesterday</button>
+            <button data-p="today">Today</button><button data-p="yesterday">Yesterday</button>
             <button data-p="week">This week</button><button data-p="lastweek">Last week</button>
             <button data-p="month">This month</button><button data-p="lastmonth">Last month</button>
           </div>
-          <button type="button" id="clear-filters" class="btn ghost sm" title="Latest day and no filters">✕ Clear filters</button>
+          <button type="button" id="clear-filters" class="btn ghost sm" title="Today and no filters">✕ Clear filters</button>
         </div>
         <div class="filter-row">
           <label>From <input type="date" id="from"></label>

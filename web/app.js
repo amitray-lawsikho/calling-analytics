@@ -23,9 +23,8 @@ const addDays = (s, n) => { const d = D(s); d.setUTCDate(d.getUTCDate() + n); re
 const nice = (s) => D(s).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 const ddmmyyyy = (s) => `${s.slice(8, 10)}-${s.slice(5, 7)}-${s.slice(0, 4)}`;
 function preset(p) {
-  const t = istToday(), ms = t.slice(0, 8) + "01", latest = S.meta?.max_date || t;
+  const t = istToday(), ms = t.slice(0, 8) + "01";
   switch (p) {
-    case "latest": return [latest, latest];
     case "today": return [t, t];
     case "yesterday": { const y = addDays(t, -1); return [y, y]; }
     case "week": return [addDays(t, -((D(t).getUTCDay() + 6) % 7)), t];
@@ -249,15 +248,14 @@ document.addEventListener("click", (e) => { if (!e.target.closest(".ms")) docume
 /* ---------- dates / presets ---------- */
 function markPreset(p) { document.querySelectorAll("#presets button").forEach((b) => b.classList.toggle("on", b.dataset.p === p)); }
 function setPreset(p) { const [f, t] = preset(p); $("from").value = f; $("to").value = t; markPreset(p); render(); }
-function clearFilters() { S.sel.team.clear(); S.sel.vertical.clear(); $("search").value = ""; Object.keys(MS).forEach(msButton); setPreset("latest"); }
+function clearFilters() { S.sel.team.clear(); S.sel.vertical.clear(); $("search").value = ""; Object.keys(MS).forEach(msButton); setPreset("today"); }
 
 /* ---------- freshness + update button ---------- */
 function showFresh(run) {
-  if (!run) { $("fresh").textContent = "Not refreshed yet"; $("updated-badge").textContent = "Updated at –"; return; }
+  if (!run) { $("fresh").textContent = "Not refreshed yet"; return; }
   const t = new Date(run.run_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   $("fresh").innerHTML = run.status === "ok" ? `Data updated ${t} IST` : `<span class="down">Last update failed ${t} IST</span>`;
   $("fresh").title = run.status === "ok" ? "" : (run.error || "");
-  $("updated-badge").textContent = `🕐 Updated at: ${run.updated_at_ampm || t}`;
 }
 async function lastRun() { const { data } = await sb.from("refresh_log").select("run_at,status,detail").order("run_at", { ascending: false }).limit(1);
   const r = data && data[0]; return r && { run_at: r.run_at, status: r.status, updated_at_ampm: r.detail?.updated_at_ampm, error: r.detail?.error }; }
@@ -305,7 +303,7 @@ async function start() {
   $("auth").hidden = true; $("app").hidden = false;
   Object.keys(MS).forEach(msInit);
   try { await loadMeta(); } catch (e) { $("content").innerHTML = `<div class="card empty">Could not load: ${esc(e.message || e)}</div>`; return; }
-  setPreset("latest");
+  setPreset("today");
 }
 $("auth-form").addEventListener("submit", async (e) => {
   e.preventDefault(); $("auth-msg").textContent = "Signing in…";
