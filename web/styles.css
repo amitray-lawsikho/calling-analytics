@@ -274,4 +274,5 @@ tr.total td { font-weight: 700; border-top: 1px solid var(--line-2); color: var(
 #d-body .card { min-width: 0; }
 .drawer .kpi .v { font-size: 22px; }
 .ms-item, .ms-item span, .ms-q { text-transform: none; letter-spacing: normal; font-weight: 500; }
-.filter-row > .lbl:last-child .ms-pop { left: auto; right: 0; }
+.filter-row > .lbl:nth-last-child(-n+2) .ms-pop { left: auto; right: 0; }
+.filter-row > [hidden] { display: none !important; }

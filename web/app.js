@@ -2,7 +2,7 @@
    ca_cdr / ca_stage_export. Numbers follow the Streamlit calling dashboard exactly (docs/definitions.md); the pipeline pre-computes each caller's day. */
 const sb = supabase.createClient(CA_CONFIG.supabaseUrl, CA_CONFIG.supabaseKey);
 const $ = (id) => document.getElementById(id);
-const S = { meta: null, seq: 0, sel: { team: new Set(), vertical: new Set(), caller: new Set() }, last: null, preset: null, charts: {},
+const S = { meta: null, seq: 0, sel: { team: new Set(), vertical: new Set(), caller: new Set(), stage: new Set() }, last: null, preset: null, charts: {},
   sort: { k: "raw_dur_sec", dir: -1 }, issue: null, page: "overall", stack: [], group: null, prow: [], grain: "day", dgrain: "day", rows: [], caller: null };
 
 /* ---------- format (Python-identical) ---------- */
@@ -279,10 +279,22 @@ function wireGrain(id, draw) {
     el.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b)); draw(); };
   draw();
 }
-function stageBars(labels, g, keys = [["f", "Follow ups", "--gold"], ["d", "Discovery", "--c2"], ["ro", "Roadmaps", "--c3"]]) {
+/* Contact Stage filter (Stage Changed Performance only): which of the three stages to show; none chosen = all three */
+const STAGES = [["d", "Discovery", "--c2", "🔍 Discovery done", "DISCOVERY DONE"], ["ro", "Roadmap", "--c3", "🗺️ Roadmaps done", "ROADMAPS DONE"],
+  ["f", "Follow up", "--gold", "📋 Follow ups done", "FOLLOW UPS DONE"]];
+const stShown = () => STAGES.filter(([, l]) => !S.sel.stage.size || S.sel.stage.has(l));
+const stSum = (o) => stShown().reduce((t, [k]) => t + (+o[k] || 0), 0);                 // o with f / d / ro
+const stRow = (x) => stShown().reduce((t, s) => t + (+x[s[4]] || 0), 0);               // agent-table row
+const stCols = (o) => stShown().map(([k]) => `<td class="num">${num(o[k])}</td>`).join("");
+const stName = (l) => (l === "Discovery" ? l : l + "s");
+const stHeads = () => stShown().map(([, l]) => `<th>${stName(l)}</th>`).join("");
+const stTotalCol = () => stShown().length > 1;
+const stWords = () => (stShown().length === 3 ? "all three together" : stShown().map(([, l]) => stName(l).toLowerCase()).join(" + "));
+const stNote = () => `Number = ${stName(stShown()[0][1]).toLowerCase()}${stShown().length === 3 ? " · hover for all three" : stShown().length === 2 ? " · hover for both" : ""}`;
+function stageBars(labels, g, keys = stShown().map(([k, l, c]) => [k, stName(l), c])) {
   return { type: "bar", data: { labels, datasets: keys.map(([k, l, c]) => ({ label: l, data: g.map(([, o]) => o[k]), backgroundColor: css(c), borderRadius: 3, maxBarThickness: 30 })) },
     options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 18 } }, interaction: { mode: "index", intersect: false },
-      plugins: { legend: { position: "bottom" }, barLabels: { dataset: 0, labels: g.map(([, o]) => (o.f ? num(o.f) : "")) } },
+      plugins: { legend: { position: "bottom" }, barLabels: { dataset: 0, labels: g.map(([, o]) => (o[keys[0][0]] ? num(o[keys[0][0]]) : "")) } },
       scales: { x: { grid: { display: false }, ticks: shortTick }, y: { beginAtZero: true } } } };
 }
 function manualBars(labels, g) {
@@ -402,37 +414,39 @@ function drawBoard() {
 /* ---------- Stage changes ---------- */
 function pageStage({ r, rep, prep, stage }) {
   const cur = cards(S.rows, rep.rows), prv = cards(S.prow, prep.rows), pt = prevText(r);
-  const withStage = (x) => x["FOLLOW UPS DONE"] || x["DISCOVERY DONE"] || x["ROADMAPS DONE"];
-  const prevBy = new Map(S.prow.map((x) => [x.CALLER, x["FOLLOW UPS DONE"] + x["DISCOVERY DONE"] + x["ROADMAPS DONE"]]));
-  const top = S.rows.filter(withStage).map((x) => ({ ...x, _st: x["FOLLOW UPS DONE"] + x["DISCOVERY DONE"] + x["ROADMAPS DONE"] })).sort((a, b) => b._st - a._st);
-  const byV = groupRows(S.rows.filter(withStage), vKey).sort((a, b) => b.f + b.d + b.ro - a.f - a.d - a.ro);
-  const byT = groupRows(S.rows.filter(withStage), (x) => x.TEAM).sort((a, b) => b.f + b.d + b.ro - a.f - a.d - a.ro);
-  const gt = (kind, list) => `<table class="agent-table"><thead><tr><th class="l">${kind === "vertical" ? "Vertical" : "Team"}</th><th>Follow ups</th><th>Discovery</th><th>Roadmaps</th><th>Total</th></tr></thead>
-    <tbody>${list.map((o) => `<tr class="click" data-k="${kind}" data-g="${esc(o.key)}"><td class="l caller-link nw">${esc(o.key)}</td><td class="num">${num(o.f)}</td><td class="num">${num(o.d)}</td>
-      <td class="num">${num(o.ro)}</td><td class="num">${num(o.f + o.d + o.ro)}</td></tr>`).join("")}</tbody></table>`;
+  const withStage = (x) => stRow(x) > 0;
+  const prevBy = new Map(S.prow.map((x) => [x.CALLER, stRow(x)]));
+  const top = S.rows.filter(withStage).map((x) => ({ ...x, _st: stRow(x) })).sort((a, b) => b._st - a._st);
+  const byV = groupRows(S.rows.filter(withStage), vKey).sort((a, b) => stSum(b) - stSum(a));
+  const byT = groupRows(S.rows.filter(withStage), (x) => x.TEAM).sort((a, b) => stSum(b) - stSum(a));
+  const tot = (o) => (stTotalCol() ? `<td class="num">${num(stSum(o))}</td>` : "");
+  const gt = (kind, list) => `<table class="agent-table"><thead><tr><th class="l">${kind === "vertical" ? "Vertical" : "Team"}</th>${stHeads()}${stTotalCol() ? "<th>Total</th>" : ""}</tr></thead>
+    <tbody>${list.map((o) => `<tr class="click" data-k="${kind}" data-g="${esc(o.key)}"><td class="l caller-link nw">${esc(o.key)}</td>${stCols(o)}${tot(o)}</tr>`).join("")}</tbody></table>`;
+  const callerCols = (x) => stShown().map((st) => `<td class="num">${num(x[st[4]])}</td>`).join("");
   $("content").innerHTML = `
     <section class="kpis">
-      ${kpiCard("📋 Follow ups done", num(cur.f), cur.f, prv.f, pt)}${kpiCard("🔍 Discovery done", num(cur.d), cur.d, prv.d, pt)}
-      ${kpiCard("🗺️ Roadmaps done", num(cur.ro), cur.ro, prv.ro, pt)}
+      ${stShown().map(([k, , , lab]) => kpiCard(lab, num(cur[k]), cur[k], prv[k], pt)).join("")}
+      ${stTotalCol() ? kpiCard("Total stage changes", num(stSum(cur)), stSum(cur), stSum(prv), pt) : ""}
     </section>
-    ${stage && stage.length > 1 ? trendCard("ch-stage", "Stage changes over time", "Number above each period = follow ups · hover for all three") : ""}
+    ${stage && stage.length > 1 ? trendCard("ch-stage", "Stage changes over time", stNote()) : ""}
     <section class="grid2">
       <section class="card"><div class="card-h"><h3>By vertical</h3><span class="muted small">Click to open</span></div><div class="chart-box" style="height:260px"><canvas id="ch-sv"></canvas></div><div class="table-wrap" style="margin-top:10px">${gt("vertical", byV)}</div></section>
       <section class="card"><div class="card-h"><h3>By team</h3><span class="muted small">Click to open</span></div><div class="chart-box" style="height:260px"><canvas id="ch-st"></canvas></div><div class="table-wrap" style="margin-top:10px">${gt("team", byT)}</div></section>
     </section>
-    <section class="card"><div class="card-h"><h3>Top callers</h3><span class="muted small">Change = all three together vs ${esc(r.cmp)}</span></div>
-      <div class="table-wrap tall"><table class="agent-table"><thead><tr><th class="l">Caller</th><th class="l">Team</th><th>Follow ups</th><th>Discovery</th><th>Roadmaps</th><th>Total</th><th>Change</th><th>Calls > 3 mins</th></tr></thead>
-      <tbody>${top.map((x) => `<tr class="click" data-c="${esc(x.CALLER)}"><td class="l caller-link nw">${esc(x.CALLER)}</td><td class="l nw">${esc(x.TEAM)}</td><td class="num">${num(x["FOLLOW UPS DONE"])}</td>
-        <td class="num">${num(x["DISCOVERY DONE"])}</td><td class="num">${num(x["ROADMAPS DONE"])}</td><td class="num">${num(x._st)}</td><td class="num">${chHtml(change(x._st, prevBy.get(x.CALLER)))}</td>
+    <section class="card"><div class="card-h"><h3>Top callers</h3><span class="muted small">Change = ${esc(stWords())} vs ${esc(r.cmp)}</span></div>
+      <div class="table-wrap tall"><table class="agent-table"><thead><tr><th class="l">Caller</th><th class="l">Team</th>${stHeads()}${stTotalCol() ? "<th>Total</th>" : ""}<th>Change</th><th>Calls > 3 mins</th></tr></thead>
+      <tbody>${top.map((x) => `<tr class="click" data-c="${esc(x.CALLER)}"><td class="l caller-link nw">${esc(x.CALLER)}</td><td class="l nw">${esc(x.TEAM)}</td>${callerCols(x)}
+        ${stTotalCol() ? `<td class="num">${num(x._st)}</td>` : ""}<td class="num">${chHtml(change(x._st, prevBy.get(x.CALLER)))}</td>
         <td class="num">${num(x["CALLS > 3 MINS"])}</td></tr>`).join("")}</tbody></table></div>
       <div class="downloads"><button class="btn" id="dl-stage">📥 Download Stage Changed Report</button><span class="dl-msg" id="dl-msg"></span></div></section>`;
   if (stage && stage.length > 1) wireGrain("ch-stage", () => {
-    const g = byGrain(stage.map((s) => ({ call_date: s.call_date, f: +s.followup, d: +s.discovery, ro: +s.roadmap })), S.grain, ["f", "d", "ro"]);
+    const g = byGrain(stage.map((x) => ({ call_date: x.call_date, f: +x.followup, d: +x.discovery, ro: +x.roadmap })), S.grain, ["f", "d", "ro"]);
     chart("ch-stage", stageBars(g.map(([k]) => grainLabel(k, S.grain)), g));
   });
   const cut = (l) => l.slice(0, 15).map((o) => [o.key, o]);
-  chart("ch-sv", horizontal(stageBars(cut(byV).map(([k]) => k), cut(byV)), cut(byV).length, 52));
-  chart("ch-st", horizontal(stageBars(cut(byT).map(([k]) => k), cut(byT)), cut(byT).length, 52));
+  const per = 18 + 17 * stShown().length;
+  chart("ch-sv", horizontal(stageBars(cut(byV).map(([k]) => k), cut(byV)), cut(byV).length, per));
+  chart("ch-st", horizontal(stageBars(cut(byT).map(([k]) => k), cut(byT)), cut(byT).length, per));
   $("content").onclick = (e) => {
     const g = e.target.closest("tr[data-g]"); if (g) { S.stack = []; openGroup(g.dataset.k, g.dataset.g); return; }
     const c = e.target.closest("[data-c]"); if (c) { S.stack = []; openCaller(c.dataset.c); }
@@ -496,7 +510,7 @@ async function openGroup(kind, name) {
   const daily = await cached(mode === "stage" ? "ca_stage_trend" : "ca_daily", { p_from: r.from, p_to: r.to, ...f });
   if (!S.group || S.group.name !== name) return;
   const k = (label, v, c, p, fm = num) => !c ? "" : `<div class="kpi"><div class="k">${label}</div><div class="v">${v}</div><div class="d">${chHtml(change(c, p))} vs ${esc(fm(p))}</div></div>`;
-  const stTot = (o) => o.f + o.d + o.ro;
+  const stTot = stSum;
   // children: teams of a vertical, callers of a team
   let kids = kind === "vertical" ? groupRows(mine, (x) => x.TEAM).map((o) => ({ ...o, name: o.key, team: true,
       manUsers: manUsers(mine.filter((x) => x.TEAM === o.key)) }))
@@ -519,13 +533,13 @@ async function openGroup(kind, name) {
         <td class="num">${o.total_calls ? ((o.n_manual / o.total_calls) * 100).toFixed(1) : "0.0"}%</td></tr>`).join("")}</tbody></table>`;
     chartTitle = "manual calls"; chartNote = "Number = manual calls · hover for duration"; trendTitle = "Manual calls over time";
   } else if (mode === "stage") {
-    cardsHtml = k("📋 Follow ups done", num(a.f), a.f, b.f) + k("🔍 Discovery done", num(a.d), a.d, b.d) + k("🗺️ Roadmaps done", num(a.ro), a.ro, b.ro) +
-      k("Total stage changes", num(stTot(a)), stTot(a), stTot(b));
-    tableHtml = `<table class="agent-table"><thead><tr><th class="l">${kind === "vertical" ? "Team" : "Caller"}</th><th>Follow ups</th><th>Discovery</th><th>Roadmaps</th><th>Total</th>
+    cardsHtml = stShown().map(([kk, , , lab]) => k(lab, num(a[kk]), a[kk], b[kk])).join("") +
+      (stTotalCol() ? k("Total stage changes", num(stTot(a)), stTot(a), stTot(b)) : "");
+    tableHtml = `<table class="agent-table"><thead><tr><th class="l">${kind === "vertical" ? "Team" : "Caller"}</th>${stHeads()}${stTotalCol() ? "<th>Total</th>" : ""}
       <th>Per 100 calls > 3 mins</th></tr></thead>
-      <tbody>${kids.map((o) => `<tr class="click" ${attr(o)}>${first(o)}<td class="num">${num(o.f)}</td><td class="num">${num(o.d)}</td><td class="num">${num(o.ro)}</td>
-        <td class="num">${num(stTot(o))}</td><td class="num">${o.calls_3m ? ((stTot(o) / o.calls_3m) * 100).toFixed(1) : "–"}</td></tr>`).join("")}</tbody></table>`;
-    chartTitle = "stage changes"; chartNote = "Number = follow ups · hover for all three"; trendTitle = "Stage changes over time";
+      <tbody>${kids.map((o) => `<tr class="click" ${attr(o)}>${first(o)}${stCols(o)}
+        ${stTotalCol() ? `<td class="num">${num(stTot(o))}</td>` : ""}<td class="num">${o.calls_3m ? ((stTot(o) / o.calls_3m) * 100).toFixed(1) : "–"}</td></tr>`).join("")}</tbody></table>`;
+    chartTitle = "stage changes"; chartNote = stNote(); trendTitle = "Stage changes over time";
   } else {
     cardsHtml = k("Total calls", num(a.total_calls), a.total_calls, b.total_calls) + k("Pick up ratio", `${pur(a.answered, a.total_calls)}%`, pur(a.answered, a.total_calls), pur(b.answered, b.total_calls), (v) => `${v}%`) +
       k("Call duration > 3 mins", fmtHm(a.dur_3m), a.dur_3m, b.dur_3m, fmtHm) + k("Avg productive hours", fmtHm(a.active ? a.prod / a.active : 0), a.active ? a.prod / a.active : 0, b.active ? b.prod / b.active : 0, fmtHm) +
@@ -550,7 +564,7 @@ async function openGroup(kind, name) {
     <section class="card"><div class="card-h"><h3>${kind === "vertical" ? "Teams" : "Callers"}</h3><span class="muted small">Click to open</span></div><div class="table-wrap">${tableHtml}</div></section>`;
   const kg = kids.map((o) => [o.name, o]);
   chart("d-kids", horizontal(mode === "stage" ? stageBars(kg.map(([n]) => n), kg) : mode === "manual" ? manualBars(kg.map(([n]) => n), kg) : trendConfig(kg.map(([n]) => n), kg),
-    kg.length, mode === "stage" ? 52 : 34));
+    kg.length, mode === "stage" ? 18 + 17 * stShown().length : 34));
   if (showTrend) {
     const drawD = () => {
       if (mode === "stage") { const g = byGrain(daily.map((x) => ({ call_date: x.call_date, f: +x.followup, d: +x.discovery, ro: +x.roadmap })), S.dgrain, ["f", "d", "ro"]);
@@ -574,6 +588,7 @@ function setPage(p) {
   document.querySelectorAll(".side nav a").forEach((a) => a.classList.toggle("on", a.dataset.page === p));
   $("side").classList.remove("open"); $("drawer").hidden = true;
   if (p !== "caller") S.issue = null;
+  $("f-stage").hidden = p !== "stage";
   render();
 }
 
@@ -658,14 +673,14 @@ function callerFocus(mode, cur, a, b) {
     const per100 = (n) => (a.c3 ? ((n / a.c3) * 100).toFixed(1) : "–");
     $("d-body").innerHTML = `
       <section class="kpis" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr))">
-        ${k("📋 Follow ups done", num(a.f), a.f, b.f)}${k("🔍 Discovery done", num(a.d), a.d, b.d)}${k("🗺️ Roadmaps done", num(a.ro), a.ro, b.ro)}
-        ${k("Total stage changes", num(a.f + a.d + a.ro), a.f + a.d + a.ro, b.f + b.d + b.ro)}
+        ${stShown().map(([kk, , , lab]) => k(lab, num(a[kk]), a[kk], b[kk])).join("")}
+        ${stTotalCol() ? k("Total stage changes", num(stSum(a)), stSum(a), stSum(b)) : ""}
       </section>
-      <p class="muted small" style="margin:0">Per 100 calls over 3 minutes: follow ups ${per100(a.f)} · discovery ${per100(a.d)} · roadmaps ${per100(a.ro)} (${num(a.c3)} calls > 3 mins)</p>
+      <p class="muted small" style="margin:0">Per 100 calls over 3 minutes: ${stShown().map(([kk, l]) => `${stName(l).toLowerCase()} ${per100(a[kk])}`).join(" · ")} (${num(a.c3)} calls > 3 mins)</p>
       <section class="card"><div class="card-h"><h3>Stage changes over time</h3>${segHtml("d-grain", S.dgrain)}</div><div class="chart-box" style="height:300px"><canvas id="d-trend"></canvas></div></section>
-      <section class="card"><h3>Day by day</h3><div class="table-wrap"><table class="agent-table"><thead><tr><th class="l">Date</th><th>Follow ups</th><th>Discovery</th><th>Roadmaps</th><th>Total</th></tr></thead>
-        <tbody>${[...rows].reverse().map((x) => `<tr><td class="l nw">${short(String(x.call_date).slice(0, 10))}</td><td class="num">${num(x.f)}</td><td class="num">${num(x.d)}</td>
-          <td class="num">${num(x.ro)}</td><td class="num">${num(x.f + x.d + x.ro)}</td></tr>`).join("") || `<tr><td class="l muted" colspan="5">No stage changes in these dates.</td></tr>`}</tbody></table></div></section>`;
+      <section class="card"><h3>Day by day</h3><div class="table-wrap"><table class="agent-table"><thead><tr><th class="l">Date</th>${stHeads()}${stTotalCol() ? "<th>Total</th>" : ""}</tr></thead>
+        <tbody>${[...rows].filter((x) => stSum(x) > 0).reverse().map((x) => `<tr><td class="l nw">${short(String(x.call_date).slice(0, 10))}</td>${stCols(x)}
+          ${stTotalCol() ? `<td class="num">${num(stSum(x))}</td>` : ""}</tr>`).join("") || `<tr><td class="l muted" colspan="5">No stage changes in these dates.</td></tr>`}</tbody></table></div></section>`;
     const drawD = () => { const g = byGrain(rows, S.dgrain, ["f", "d", "ro"]); chart("d-trend", stageBars(g.map(([kk]) => grainLabel(kk, S.dgrain)), g)); };
     drawD();
     $("d-grain").onclick = (e) => { const bt = e.target.closest("button[data-g]"); if (!bt) return; S.dgrain = bt.dataset.g;
@@ -752,9 +767,9 @@ async function downloadManual() {
 
 /* ---------- multi-select filters (with search) ---------- */
 const MS = { vertical: { all: "All verticals", one: "vertical", opts: [] }, team: { all: "All teams", one: "team", opts: [] },
-  caller: { all: "All callers", one: "caller", opts: [] } };
+  caller: { all: "All callers", one: "caller", opts: [] }, stage: { all: "All stages", one: "stage", opts: STAGES.map(([, l]) => l) } };
 let msTimer;
-function msChanged() { clearTimeout(msTimer); msTimer = setTimeout(() => { buildOptions(); render(); }, 450); }
+function msChanged(id) { clearTimeout(msTimer); msTimer = setTimeout(() => { buildOptions(); render(); }, id === "stage" ? 50 : 450); }
 /* team list follows the chosen verticals; caller list follows the chosen verticals and teams */
 function buildOptions() {
   const V = S.sel.vertical, T = S.sel.team, cs = S.meta?.callers || [];
@@ -785,10 +800,10 @@ function msInit(id) {
   box.querySelector(".ms-btn").onclick = () => { document.querySelectorAll(".ms-pop").forEach((p) => p !== pop && (p.hidden = true));
     pop.hidden = !pop.hidden; if (!pop.hidden) { msList(id); box.querySelector(".ms-q").focus(); } };
   box.querySelector(".ms-q").oninput = () => msList(id);
-  box.querySelector(".ms-list").onchange = (e) => { const v = e.target.value; e.target.checked ? S.sel[id].add(v) : S.sel[id].delete(v); msButton(id); msChanged(); };
+  box.querySelector(".ms-list").onchange = (e) => { const v = e.target.value; e.target.checked ? S.sel[id].add(v) : S.sel[id].delete(v); msButton(id); msChanged(id); };
   box.querySelector(".ms-act").onclick = (e) => { const a = e.target.dataset.a; if (!a) return;
     if (a === "none") S.sel[id].clear(); else (box._hits || []).forEach((o) => S.sel[id].add(o));
-    msList(id); msButton(id); msChanged(); };
+    msList(id); msButton(id); msChanged(id); };
   msButton(id);
 }
 document.addEventListener("click", (e) => { if (!e.target.closest(".ms")) document.querySelectorAll(".ms-pop").forEach((p) => (p.hidden = true)); });
@@ -796,7 +811,7 @@ document.addEventListener("click", (e) => { if (!e.target.closest(".ms")) docume
 /* ---------- dates / presets ---------- */
 function markPreset(p) { S.preset = p; document.querySelectorAll("#presets button").forEach((b) => b.classList.toggle("on", b.dataset.p === p)); }
 function setPreset(p) { const [f, t] = preset(p); $("from").value = f; $("to").value = t; markPreset(p); render(); }
-function clearFilters() { S.issue = null; S.sel.team.clear(); S.sel.vertical.clear(); S.sel.caller.clear(); buildOptions(); setPreset("today"); }
+function clearFilters() { S.issue = null; S.sel.team.clear(); S.sel.vertical.clear(); S.sel.caller.clear(); S.sel.stage.clear(); buildOptions(); setPreset("today"); }
 
 /* ---------- freshness + update button ---------- */
 function showFresh(run) {
