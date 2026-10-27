@@ -94,7 +94,16 @@ function chart(id, cfg) {
   cfg.plugins = [barLabels];
   S.charts[id] = new Chart(el, cfg);
 }
-const shortTick = { autoSkip: false, maxRotation: 0, callback(v) { const l = String(this.getLabelForValue(v)); return l.length > 16 ? l.slice(0, 15) + "…" : l; } };
+// axis labels: full names, wrapped onto several lines (no "…")
+function wrapLabel(text, width = 14) {
+  const out = []; let line = "";
+  for (const w of String(text).split(/\s+/)) {
+    if (line && (line + " " + w).length > width) { out.push(line); line = w; } else line = line ? line + " " + w : w;
+  }
+  if (line) out.push(line);
+  return out.length > 1 ? out : out[0] || "";
+}
+const shortTick = { autoSkip: false, maxRotation: 0, callback(v) { return wrapLabel(this.getLabelForValue(v)); } };
 const hours = (sec) => Math.round((sec / 3600) * 10) / 10;
 /* one bar per period = talk time of calls > 3 mins; the number above it = total calls; hover = connected / not connected split */
 function trendConfig(labels, g) {
