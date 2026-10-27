@@ -80,12 +80,25 @@ const barLabels = {
   afterDatasetsDraw(chart) {
     const o = chart.options.plugins.barLabels; if (!o) return;
     const meta = chart.getDatasetMeta(o.dataset ?? 0); if (!meta || meta.hidden || meta.data.length > 45) return;
-    const ctx = chart.ctx; ctx.save(); ctx.fillStyle = css("--ink"); ctx.font = "600 11px Inter, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-    meta.data.forEach((el, i) => { const t = o.labels[i]; if (t == null || t === "") return; ctx.fillText(String(t), el.x, Math.min(el.y, el.base) - 3); });
+    const ctx = chart.ctx, horiz = chart.options.indexAxis === "y"; ctx.save(); ctx.fillStyle = css("--ink"); ctx.font = "600 11px Inter, sans-serif";
+    ctx.textAlign = horiz ? "left" : "center"; ctx.textBaseline = horiz ? "middle" : "bottom";
+    meta.data.forEach((el, i) => { const t = o.labels[i]; if (t == null || t === "") return;
+      if (horiz) ctx.fillText(String(t), Math.max(el.x, el.base) + 6, el.y); else ctx.fillText(String(t), el.x, Math.min(el.y, el.base) - 3); });
     ctx.restore();
   },
 };
+/* comparison charts (teams, verticals, callers): horizontal bars, names on the left, one per row, wrapped if long; the box grows to fit */
+function horizontal(cfg, n, perRow = 34) {
+  const o = cfg.options, x = o.scales.x || {}, y = o.scales.y || {};
+  o.indexAxis = "y";
+  o.scales = { x: { ...y, position: "bottom", grid: { color: css("--line") } },
+    y: { grid: { display: false }, ticks: { autoSkip: false, color: css("--ink"), callback(v) { return wrapLabel(this.getLabelForValue(v), 26); } } } };
+  o.layout = { padding: { right: 48, top: 4 } };
+  cfg._height = Math.max(220, 70 + n * perRow);
+  return cfg;
+}
 function chart(id, cfg) {
+  if (cfg._height) { const box = $(id)?.parentElement; if (box) box.style.height = cfg._height + "px"; }
   if (S.charts[id]) S.charts[id].destroy();
   const el = $(id); if (!el) return;
   Chart.defaults.color = css("--muted"); Chart.defaults.borderColor = css("--line"); Chart.defaults.font.family = "Inter, system-ui, sans-serif";
@@ -346,8 +359,8 @@ function pageGroup() {
       <div class="chart-box" style="height:${kind === "team" ? 380 : 320}px"><canvas id="ch-group"></canvas></div></section>
     <section class="card"><div class="card-h"><h3>${kind === "vertical" ? "Verticals" : "Teams"}</h3><span class="muted small">Click a ${label} for its trend and ${kind === "vertical" ? "teams" : "callers"} · change = call duration vs ${esc(range().cmp)}</span></div>
       <div class="table-wrap">${groupTable(kind, list, prevMap)}</div></section>`;
-  const top = kind === "team" ? list.slice(0, 25) : list;
-  chart("ch-group", trendConfig(top.map((o) => o.key), top.map((o) => [o.key, o])));
+  const top = list;
+  chart("ch-group", horizontal(trendConfig(top.map((o) => o.key), top.map((o) => [o.key, o])), top.length));
   $("content").onclick = (e) => { const t = e.target.closest("tr[data-g]"); if (t) { S.stack = []; openGroup(kind, t.dataset.g); } };
 }
 
@@ -418,8 +431,8 @@ function pageStage({ r, rep, prep, stage }) {
     chart("ch-stage", stageBars(g.map(([k]) => grainLabel(k, S.grain)), g));
   });
   const cut = (l) => l.slice(0, 15).map((o) => [o.key, o]);
-  chart("ch-sv", stageBars(cut(byV).map(([k]) => k), cut(byV)));
-  chart("ch-st", stageBars(cut(byT).map(([k]) => k), cut(byT)));
+  chart("ch-sv", horizontal(stageBars(cut(byV).map(([k]) => k), cut(byV)), cut(byV).length, 52));
+  chart("ch-st", horizontal(stageBars(cut(byT).map(([k]) => k), cut(byT)), cut(byT).length, 52));
   $("content").onclick = (e) => {
     const g = e.target.closest("tr[data-g]"); if (g) { S.stack = []; openGroup(g.dataset.k, g.dataset.g); return; }
     const c = e.target.closest("[data-c]"); if (c) { S.stack = []; openCaller(c.dataset.c); }
@@ -510,9 +523,9 @@ async function openGroup(kind, name) {
     : kids.map((x) => [x.CALLER, { total_calls: x["TOTAL CALLS"], answered: x._ans, missed: x._miss, calls_3m: x["CALLS > 3 MINS"], dur_3m: x.raw_dur_sec,
       f: x["FOLLOW UPS DONE"], d: x["DISCOVERY DONE"], ro: x["ROADMAPS DONE"], n_manual: +(x._src?.n_manual || 0), manual_dur: +(x._src?.manual_dur || 0) }]))
     .filter(([, o]) => (mode === "stage" ? o.f + o.d + o.ro : mode === "manual" ? o.n_manual : o.total_calls) > 0)
-    .sort((x, y) => (mode === "stage" ? (y[1].f + y[1].d + y[1].ro) - (x[1].f + x[1].d + x[1].ro) : mode === "manual" ? y[1].n_manual - x[1].n_manual : y[1].dur_3m - x[1].dur_3m))
-    .slice(0, 20);
-  chart("d-kids", mode === "stage" ? stageBars(kg.map(([n]) => n), kg) : mode === "manual" ? manualBars(kg.map(([n]) => n), kg) : trendConfig(kg.map(([n]) => n), kg));
+    .sort((x, y) => (mode === "stage" ? (y[1].f + y[1].d + y[1].ro) - (x[1].f + x[1].d + x[1].ro) : mode === "manual" ? y[1].n_manual - x[1].n_manual : y[1].dur_3m - x[1].dur_3m));
+  chart("d-kids", horizontal(mode === "stage" ? stageBars(kg.map(([n]) => n), kg) : mode === "manual" ? manualBars(kg.map(([n]) => n), kg) : trendConfig(kg.map(([n]) => n), kg),
+    kg.length, mode === "stage" ? 52 : 34));
   if (daily.length > 1) {
     const drawD = () => { const g = byGrain(daily, S.dgrain, ["total_calls", "calls_3m", "dur_3m", "answered", "missed"]);
       chart("d-trend", trendConfig(g.map(([kk]) => grainLabel(kk, S.dgrain)), g)); };
