@@ -94,6 +94,7 @@ function chart(id, cfg) {
   cfg.plugins = [barLabels];
   S.charts[id] = new Chart(el, cfg);
 }
+const shortTick = { autoSkip: false, maxRotation: 0, callback(v) { const l = String(this.getLabelForValue(v)); return l.length > 16 ? l.slice(0, 15) + "…" : l; } };
 const hours = (sec) => Math.round((sec / 3600) * 10) / 10;
 /* one bar per period = talk time of calls > 3 mins; the number above it = total calls; hover = connected / not connected split */
 function trendConfig(labels, g) {
@@ -107,7 +108,7 @@ function trendConfig(labels, g) {
           afterLabel: (c) => { const o = g[c.dataIndex][1];
             return [` Total calls: ${num(o.total_calls)}`, ` Connected: ${num(o.answered)} (${pur(o.answered, o.total_calls)}%)`,
               ` Not connected: ${num(o.missed)}`, ` Calls > 3 mins: ${num(o.calls_3m)}`]; } } } },
-      scales: { x: { grid: { display: false } },
+      scales: { x: { grid: { display: false }, ticks: shortTick },
         y: { beginAtZero: true, ticks: { callback: (v) => `${v}h` }, title: { display: true, text: "Call duration > 3 mins" } } } } };
 }
 const GRAINS = { day: "Day", part: "Part of month", month: "Month" };
@@ -192,7 +193,7 @@ const manTotal = (man) => ({ CALLER: "TOTAL", VERTICAL: "—", TEAM: "—", "MAN
 /* ---------- pages ---------- */
 const PAGES = {
   overall: "Overall Performance", vertical: "Vertical Wise Performance", team: "Teamwise Performance",
-  caller: "Caller Wise Performance", stage: "Stage Changes", manual: "Manual Calls",
+  caller: "Caller Wise Performance", stage: "Stage Changed Performance", manual: "Manual Calls",
 };
 const inSheet = (x) => (x._stage ? !!x._inSheet : x._src?.team != null);   // in the current team sheet (KPI cards and highlights only)
 function busy(on) { $("busy").hidden = !on; $("content").classList.toggle("loading", on); }
@@ -260,7 +261,7 @@ function stageBars(labels, g, keys = [["f", "Follow ups", "--gold"], ["d", "Disc
   return { type: "bar", data: { labels, datasets: keys.map(([k, l, c]) => ({ label: l, data: g.map(([, o]) => o[k]), backgroundColor: css(c), borderRadius: 3, maxBarThickness: 30 })) },
     options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 18 } }, interaction: { mode: "index", intersect: false },
       plugins: { legend: { position: "bottom" }, barLabels: { dataset: 0, labels: g.map(([, o]) => (o.f ? num(o.f) : "")) } },
-      scales: { x: { grid: { display: false } }, y: { beginAtZero: true } } } };
+      scales: { x: { grid: { display: false }, ticks: shortTick }, y: { beginAtZero: true } } } };
 }
 function manualBars(labels, g) {
   return { type: "bar", data: { labels, datasets: [{ label: "Manual calls", data: g.map(([, o]) => o.n_manual), backgroundColor: css("--c3"), borderRadius: 4, maxBarThickness: 40 }] },
@@ -268,7 +269,7 @@ function manualBars(labels, g) {
       plugins: { legend: { display: false }, barLabels: { dataset: 0, labels: g.map(([, o]) => (o.n_manual ? num(o.n_manual) : "")) },
         tooltip: { callbacks: { label: (c) => ` Manual calls: ${num(c.raw)}`, afterLabel: (c) => { const o = g[c.dataIndex][1];
           return [` Duration: ${fmtHm(o.manual_dur)}`, ...(o.manual_callers != null ? [` Callers: ${num(o.manual_callers)}`] : [])]; } } } },
-      scales: { x: { grid: { display: false } }, y: { beginAtZero: true } } } };
+      scales: { x: { grid: { display: false }, ticks: shortTick }, y: { beginAtZero: true } } } };
 }
 
 /* ---------- Overall ---------- */
@@ -337,7 +338,7 @@ function pageGroup() {
     <section class="card"><div class="card-h"><h3>${kind === "vertical" ? "Verticals" : "Teams"}</h3><span class="muted small">Click a ${label} for its trend and ${kind === "vertical" ? "teams" : "callers"} · change = call duration vs ${esc(range().cmp)}</span></div>
       <div class="table-wrap">${groupTable(kind, list, prevMap)}</div></section>`;
   const top = kind === "team" ? list.slice(0, 25) : list;
-  chart("ch-group", trendConfig(top.map((o) => o.key.length > 16 ? o.key.slice(0, 15) + "…" : o.key), top.map((o) => [o.key, o])));
+  chart("ch-group", trendConfig(top.map((o) => o.key), top.map((o) => [o.key, o])));
   $("content").onclick = (e) => { const t = e.target.closest("tr[data-g]"); if (t) { S.stack = []; openGroup(kind, t.dataset.g); } };
 }
 
@@ -407,7 +408,7 @@ function pageStage({ r, rep, prep, stage }) {
     const g = byGrain(stage.map((s) => ({ call_date: s.call_date, f: +s.followup, d: +s.discovery, ro: +s.roadmap })), S.grain, ["f", "d", "ro"]);
     chart("ch-stage", stageBars(g.map(([k]) => grainLabel(k, S.grain)), g));
   });
-  const cut = (l) => l.slice(0, 15).map((o) => [o.key.length > 14 ? o.key.slice(0, 13) + "…" : o.key, o]);
+  const cut = (l) => l.slice(0, 15).map((o) => [o.key, o]);
   chart("ch-sv", stageBars(cut(byV).map(([k]) => k), cut(byV)));
   chart("ch-st", stageBars(cut(byT).map(([k]) => k), cut(byT)));
   $("content").onclick = (e) => {
@@ -459,6 +460,7 @@ function pageManual({ r, rep, prep, daily }) {
 /* ---------- vertical / team panel ---------- */
 async function openGroup(kind, name) {
   const r = range(); S.caller = null; S.group = { kind, name };
+  const mode = ["stage", "manual"].includes(S.page) ? S.page : "calls";
   const key = kind === "vertical" ? vKey : (x) => x.TEAM;
   const mine = S.rows.filter((x) => key(x) === name), prevMine = S.prow.filter((x) => key(x) === name);
   const a = groupRows(mine, () => name)[0] || {}, b = groupRows(prevMine, () => name)[0] || {};
@@ -490,8 +492,18 @@ async function openGroup(kind, name) {
       ${k("Callers", num(a.callers), a.callers, b.callers)}${k("Follow ups done", num(a.f), a.f, b.f)}${k("Discovery done", num(a.d), a.d, b.d)}${k("Roadmaps done", num(a.ro), a.ro, b.ro)}
       ${k("Manual calls", num(a.n_manual), a.n_manual, b.n_manual)}
     </section>
+    <section class="card"><div class="card-h"><h3>${kind === "vertical" ? "Teams" : "Callers"} · ${mode === "stage" ? "stage changes" : mode === "manual" ? "manual calls" : "call duration > 3 mins"}</h3>
+      <span class="muted small">${mode === "stage" ? "Number above = follow ups · hover for all three" : mode === "manual" ? "Number above = manual calls · hover for duration" : "Number above each bar = total calls · hover for connected / not connected"}</span></div>
+      <div class="chart-box" style="height:300px"><canvas id="d-kids"></canvas></div></section>
     ${daily.length > 1 ? `<section class="card"><div class="card-h"><h3>Trend</h3>${segHtml("d-grain", S.dgrain)}</div><div class="chart-box"><canvas id="d-trend"></canvas></div></section>` : ""}
     <section class="card"><div class="card-h"><h3>${kind === "vertical" ? "Teams" : "Callers"}</h3><span class="muted small">Click to open</span></div><div class="table-wrap">${kidTable}</div></section>`;
+  const kg = (kind === "vertical" ? kids.map((o) => [o.key, o])
+    : kids.map((x) => [x.CALLER, { total_calls: x["TOTAL CALLS"], answered: x._ans, missed: x._miss, calls_3m: x["CALLS > 3 MINS"], dur_3m: x.raw_dur_sec,
+      f: x["FOLLOW UPS DONE"], d: x["DISCOVERY DONE"], ro: x["ROADMAPS DONE"], n_manual: +(x._src?.n_manual || 0), manual_dur: +(x._src?.manual_dur || 0) }]))
+    .filter(([, o]) => (mode === "stage" ? o.f + o.d + o.ro : mode === "manual" ? o.n_manual : o.total_calls) > 0)
+    .sort((x, y) => (mode === "stage" ? (y[1].f + y[1].d + y[1].ro) - (x[1].f + x[1].d + x[1].ro) : mode === "manual" ? y[1].n_manual - x[1].n_manual : y[1].dur_3m - x[1].dur_3m))
+    .slice(0, 20);
+  chart("d-kids", mode === "stage" ? stageBars(kg.map(([n]) => n), kg) : mode === "manual" ? manualBars(kg.map(([n]) => n), kg) : trendConfig(kg.map(([n]) => n), kg));
   if (daily.length > 1) {
     const drawD = () => { const g = byGrain(daily, S.dgrain, ["total_calls", "calls_3m", "dur_3m", "answered", "missed"]);
       chart("d-trend", trendConfig(g.map(([kk]) => grainLabel(kk, S.dgrain)), g)); };
