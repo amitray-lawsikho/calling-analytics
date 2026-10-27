@@ -2,7 +2,7 @@
    ca_cdr / ca_stage_export. Numbers follow the Streamlit calling dashboard exactly (docs/definitions.md); the pipeline pre-computes each caller's day. */
 const sb = supabase.createClient(CA_CONFIG.supabaseUrl, CA_CONFIG.supabaseKey);
 const $ = (id) => document.getElementById(id);
-const S = { meta: null, seq: 0, sel: { team: new Set(), vertical: new Set(), caller: new Set(), stage: new Set() }, last: null, preset: null, charts: {},
+const S = { meta: null, seq: 0, sel: { team: new Set(), vertical: new Set(), caller: new Set(), stage: new Set(), month: new Set() }, last: null, preset: null, charts: {},
   sort: { k: "raw_dur_sec", dir: -1 }, issue: null, page: "overall", stack: [], group: null, prow: [], grain: "day", dgrain: "day", rows: [], caller: null };
 
 /* ---------- format (Python-identical) ---------- */
@@ -55,6 +55,11 @@ function compareWith(p, from, to) {
     case "lastweek": return [addDays(from, -7), addDays(to, -7), "the week before"];
     case "month": return [shiftMonth(from, -1), shiftMonth(to, -1), "the same days of last month"];
     case "lastmonth": return [shiftMonth(from, -1), addDays(from, -1), "the month before"];
+    case "months": {   // Month filter: the same days, as many months earlier as were picked
+      const n = S.sel.month.size || 1, endOfMonth = addDays(to, 1).slice(8) === "01";
+      const pt = endOfMonth ? addDays(shiftMonth(to.slice(0, 8) + "01", -n + 1).slice(0, 8) + "01", -1) : shiftMonth(to, -n);
+      return [shiftMonth(from, -n), pt, n === 1 ? "the same days of the month before" : `the same days of the ${n} months before`];
+    }
     default: { const n = spanDays(from, to); return [addDays(from, -n), addDays(from, -1), `the ${n} day${n > 1 ? "s" : ""} before`]; }
   }
 }
@@ -765,11 +770,38 @@ async function downloadManual() {
   save("Highest_Manual_Calls.csv", [csvLine(MAN_COLS), ...[...S.manual, manTotal(S.manual)].map((x) => csvLine(MAN_COLS.map((c) => x[c])))]);
 }
 
+/* ---------- Month filter: every month that has data, with the dates it covers, e.g. "October 2026 (1 - 27)" ---------- */
+let MONTHS = [];   // [{ label, from, to }] newest first
+function buildMonths() {
+  const lo = S.meta?.min_date, hiData = S.meta?.max_date, t = istToday();
+  MONTHS = []; if (!lo) return;
+  const hi = hiData && hiData < t ? t : (hiData || t);
+  for (let m = lo.slice(0, 8) + "01"; m <= hi; m = shiftMonth(m, 1)) {
+    const [y, mo] = m.split("-").map(Number), last = `${m.slice(0, 8)}${String(daysIn(y, mo)).padStart(2, "0")}`;
+    const from = m < lo ? lo : m, to = last > hi ? hi : last;
+    const name = D(m).toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "UTC" });
+    MONTHS.unshift({ label: `${name} (${+from.slice(8)} - ${+to.slice(8)})`, from, to });
+  }
+  MS.month.opts = MONTHS.map((x) => x.label);
+}
+/* picked months -> From / To; months in between are ticked too, so the dates stay one unbroken period */
+function applyMonths() {
+  const idx = MONTHS.map((x, i) => (S.sel.month.has(x.label) ? i : -1)).filter((i) => i >= 0);
+  if (!idx.length) { setPreset("today"); return false; }
+  const a = Math.min(...idx), b = Math.max(...idx);
+  for (let i = a; i <= b; i++) S.sel.month.add(MONTHS[i].label);
+  $("from").value = MONTHS[b].from; $("to").value = MONTHS[a].to;
+  S.preset = "months"; document.querySelectorAll("#presets button").forEach((x) => x.classList.remove("on"));
+  msButton("month"); const box = $("ms-month"); if (box && !box.querySelector(".ms-pop").hidden) msList("month");
+  return true;
+}
+function clearMonths() { if (!S.sel.month.size) return; S.sel.month.clear(); msButton("month"); }
+
 /* ---------- multi-select filters (with search) ---------- */
-const MS = { vertical: { all: "All verticals", one: "vertical", opts: [] }, team: { all: "All teams", one: "team", opts: [] },
+const MS = { month: { all: "All months", one: "month", opts: [] }, vertical: { all: "All verticals", one: "vertical", opts: [] }, team: { all: "All teams", one: "team", opts: [] },
   caller: { all: "All callers", one: "caller", opts: [] }, stage: { all: "All stages", one: "stage", opts: STAGES.map(([, l]) => l) } };
 let msTimer;
-function msChanged(id) { clearTimeout(msTimer); msTimer = setTimeout(() => { buildOptions(); render(); }, id === "stage" ? 50 : 450); }
+function msChanged(id) { clearTimeout(msTimer); msTimer = setTimeout(() => { if (id === "month") { if (applyMonths()) render(); return; } buildOptions(); render(); }, id === "stage" ? 50 : 450); }
 /* team list follows the chosen verticals; caller list follows the chosen verticals and teams */
 function buildOptions() {
   const V = S.sel.vertical, T = S.sel.team, cs = S.meta?.callers || [];
@@ -810,8 +842,8 @@ document.addEventListener("click", (e) => { if (!e.target.closest(".ms")) docume
 
 /* ---------- dates / presets ---------- */
 function markPreset(p) { S.preset = p; document.querySelectorAll("#presets button").forEach((b) => b.classList.toggle("on", b.dataset.p === p)); }
-function setPreset(p) { const [f, t] = preset(p); $("from").value = f; $("to").value = t; markPreset(p); render(); }
-function clearFilters() { S.issue = null; S.sel.team.clear(); S.sel.vertical.clear(); S.sel.caller.clear(); S.sel.stage.clear(); buildOptions(); setPreset("today"); }
+function setPreset(p) { clearMonths(); const [f, t] = preset(p); $("from").value = f; $("to").value = t; markPreset(p); render(); }
+function clearFilters() { S.issue = null; S.sel.team.clear(); S.sel.vertical.clear(); S.sel.caller.clear(); S.sel.stage.clear(); S.sel.month.clear(); buildOptions(); setPreset("today"); }
 
 /* ---------- freshness + update button ---------- */
 function showFresh(run) {
@@ -852,7 +884,7 @@ $("theme").addEventListener("click", () => {
 /* ---------- auth + start ---------- */
 async function loadMeta() {
   S.meta = await rpc("ca_meta", {});
-  buildOptions();
+  buildMonths(); buildOptions();
   if (S.meta?.min_date) { $("from").min = $("to").min = S.meta.min_date; }
   showFresh(S.meta?.last_run);
 }
@@ -885,7 +917,7 @@ $("signout").addEventListener("click", async () => { await sb.auth.signOut(); lo
 /* ---------- events ---------- */
 window.addEventListener("hashchange", () => setPage(location.hash.slice(1)));
 document.querySelectorAll("#presets button").forEach((b) => b.addEventListener("click", () => setPreset(b.dataset.p)));
-["from", "to"].forEach((id) => $(id).addEventListener("change", () => { markPreset(null); render(); }));
+["from", "to"].forEach((id) => $(id).addEventListener("change", () => { clearMonths(); markPreset(null); render(); }));
 $("clear-filters").addEventListener("click", clearFilters);
 $("update").addEventListener("click", update);
 $("menu").addEventListener("click", () => {
