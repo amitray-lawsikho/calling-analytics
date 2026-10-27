@@ -17,7 +17,9 @@ Same numbers as the Streamlit calling dashboard (`final_dashboard.py`, Dynamic D
 | Productive hours | 10 h per active day − breaks. Today: the time from the last call to 20:00 also counts as break (Streamlit rule), as of the last refresh |
 | Remarks | Late Check-In (first call after 10:15), Early Check-Out (last call before 20:00, not today), Low Calls (< 40 calls > 3 min), Low Duration (< 3h 15m), Excessive Breaks (> 2 breaks), Less Productive (< 5 h) — per day |
 | Stage changes | Stage_Changed_By mapped to Caller Name; Discovery / Roadmap / Follow Up = New_Contact_Stage contains the word (any case). Callers with stage changes but no calls are listed with 0 calls |
-| Unique leads | Unique numbers dialled each day (calls + manual), added up over the days (Amit, 26 Oct 2026) |
+| Unique leads | Unique numbers dialled each day (calls + manual) by callers in the current team sheet, added up over the days (Amit, 26–27 Oct 2026) |
+| Cards and highlights | Only callers with a team in the current team sheet (Amit, 27 Oct 2026). Tables still list everyone; others show under team "Others" |
+| Agent performance table | Callers with 0 calls or 0 duration > 3 mins are not listed (also not in its download) |
 | Downloads | CDR_LOG.csv and Stage_Changed_Report.csv: same columns, order and text as Streamlit's files |
 | Storage | Individual calls, manual calls and stage changes: last 90 days. Per caller per day summaries: kept forever |
 | Refresh | 06:30 IST (full rebuild of the 90 days), 11:00, 13:00, 15:00, 17:00, 19:00, 21:00 IST via Supabase pg_cron, plus the Update button |
