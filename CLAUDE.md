@@ -8,7 +8,7 @@ manual calls and LSQ stage changes. Rules: [docs/definitions.md](docs/definition
   manual-calls and stage-change sheets, team sheet -> Supabase project "Sales Analytics Dashboard" (`ybkldfcilvibryoxcuvq`,
   shared with the old Streamlit sign-ins). Then it rebuilds `agent_day` (one row per caller per day) and `stage_day`.
   `--backfill true` copied the BigQuery history once; BigQuery is not used otherwise.
-- `.github/workflows/refresh.yml`: workflow_dispatch only; Supabase pg_cron jobs `calling-refresh-*` and the Update button start it
+- `.github/workflows/refresh.yml`: workflow_dispatch only; Supabase pg_cron job `calling-refresh-2300` (once a day, 23:00 IST) and the Update button start it
   (Vault secret `github_token`). No Claude and no LLM call in runs.
 - `web/`: static site (no build step), Elite Green theme; Supabase email login, any @lawsikho.in email can read.
 - Database: calls (90 days, ids = 64-bit hash), manual_calls, stage_changes, team_map, load_batch, agent_day, stage_day,
