@@ -554,7 +554,7 @@ function sumDays(days, stage) {
   const s = (k) => days.reduce((a, d) => a + (+d[k] || 0), 0), st = (k) => stage.reduce((a, d) => a + (+d[k] || 0), 0);
   return { calls: s("total_calls"), ans: s("answered"), miss: s("missed"), c3: s("calls_3m"), c1520: s("calls_15_20"), c20: s("calls_20p"),
     dur: s("dur_3m"), prod: s("prod_sec"), uniq: s("unique_leads"), bc: s("break_count"), bs: s("break_shown"),
-    d: st("discovery"), ro: st("roadmap"), f: st("followup"), days: days.length };
+    d: st("discovery"), ro: st("roadmap"), f: st("followup"), days: days.length, manualN: s("n_manual"), manualD: s("manual_dur") };
 }
 async function openCaller(name) {
   const r = range(); S.caller = name; S.group = null;
@@ -567,6 +567,7 @@ async function openCaller(name) {
     cached("ca_caller", { p_from: r.pf, p_to: r.pt, p_caller: name, p_hours: false })]);
   if (S.caller !== name) return;
   const a = sumDays(cur.days, cur.stage), b = sumDays(prv.days, prv.stage);
+  if (S.page === "stage" || S.page === "manual") return callerFocus(S.page, cur, a, b);
   const k = (label, v, c, p, f = num) => !c ? "" : `<div class="kpi"><div class="k">${label}</div><div class="v">${v}</div><div class="d">${chHtml(change(c, p))} vs ${esc(f(p))}</div></div>`;
   const stageBy = new Map(cur.stage.map((s) => [String(s.call_date).slice(0, 10), s]));
   const hrs = cur.hours || [];
@@ -619,6 +620,47 @@ async function openCaller(name) {
       { label: "Calls > 3 mins", data: shown.map((x) => +x.calls_3m), backgroundColor: css("--ly"), borderRadius: 3 }] },
     options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 16 } }, plugins: { legend: { position: "bottom" },
       barLabels: { dataset: 0, labels: shown.map((x) => (+x.calls ? num(+x.calls) : "")) } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true } } } });
+}
+/* caller panel opened from Stage Changed Performance or Manual Calls: only that subject */
+function callerFocus(mode, cur, a, b) {
+  const k = (label, v, c, p, f = num) => `<div class="kpi"><div class="k">${label}</div><div class="v">${v}</div><div class="d">${chHtml(change(c, p))} vs ${esc(f(p))}</div></div>`;
+  if (mode === "stage") {
+    const rows = cur.stage.map((s) => ({ call_date: s.call_date, f: +s.followup, d: +s.discovery, ro: +s.roadmap }));
+    const per100 = (n) => (a.c3 ? ((n / a.c3) * 100).toFixed(1) : "–");
+    $("d-body").innerHTML = `
+      <section class="kpis" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr))">
+        ${k("📋 Follow ups done", num(a.f), a.f, b.f)}${k("🔍 Discovery done", num(a.d), a.d, b.d)}${k("🗺️ Roadmaps done", num(a.ro), a.ro, b.ro)}
+        ${k("Total stage changes", num(a.f + a.d + a.ro), a.f + a.d + a.ro, b.f + b.d + b.ro)}
+      </section>
+      <p class="muted small" style="margin:0">Per 100 calls over 3 minutes: follow ups ${per100(a.f)} · discovery ${per100(a.d)} · roadmaps ${per100(a.ro)} (${num(a.c3)} calls > 3 mins)</p>
+      <section class="card"><div class="card-h"><h3>Stage changes over time</h3>${segHtml("d-grain", S.dgrain)}</div><div class="chart-box" style="height:300px"><canvas id="d-trend"></canvas></div></section>
+      <section class="card"><h3>Day by day</h3><div class="table-wrap"><table class="agent-table"><thead><tr><th class="l">Date</th><th>Follow ups</th><th>Discovery</th><th>Roadmaps</th><th>Total</th></tr></thead>
+        <tbody>${[...rows].reverse().map((x) => `<tr><td class="l nw">${short(String(x.call_date).slice(0, 10))}</td><td class="num">${num(x.f)}</td><td class="num">${num(x.d)}</td>
+          <td class="num">${num(x.ro)}</td><td class="num">${num(x.f + x.d + x.ro)}</td></tr>`).join("") || `<tr><td class="l muted" colspan="5">No stage changes in these dates.</td></tr>`}</tbody></table></div></section>`;
+    const drawD = () => { const g = byGrain(rows, S.dgrain, ["f", "d", "ro"]); chart("d-trend", stageBars(g.map(([kk]) => grainLabel(kk, S.dgrain)), g)); };
+    drawD();
+    $("d-grain").onclick = (e) => { const bt = e.target.closest("button[data-g]"); if (!bt) return; S.dgrain = bt.dataset.g;
+      document.querySelectorAll("#d-grain button").forEach((x) => x.classList.toggle("on", x === bt)); drawD(); };
+    return;
+  }
+  const days = cur.days.filter((d) => +d.n_manual > 0);
+  const s2 = (arr, kk) => arr.reduce((t, d) => t + (+d[kk] || 0), 0);
+  const mc = s2(cur.days, "n_manual"), md = s2(cur.days, "manual_dur");
+  const allCalls = s2(cur.days, "total_calls");
+  $("d-body").innerHTML = `
+    <section class="kpis" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr))">
+      ${k("✏️ Manual calls", num(mc), mc, b.manualN)}${k("⏱ Manual call duration", fmtHm(md), md, b.manualD, fmtHm)}
+      <div class="kpi"><div class="k">% of all calls</div><div class="v">${allCalls ? ((mc / allCalls) * 100).toFixed(1) : "0.0"}%</div><div class="d muted">${num(allCalls)} calls in total</div></div>
+      <div class="kpi"><div class="k">Approved by</div><div class="v" style="font-size:15px">${esc(uniqueApprovals(cur.days.flatMap((d) => d.approvals || [])))}</div></div>
+    </section>
+    <section class="card"><div class="card-h"><h3>Manual calls over time</h3>${segHtml("d-grain", S.dgrain)}</div><div class="chart-box" style="height:280px"><canvas id="d-trend"></canvas></div></section>
+    <section class="card"><h3>Day by day</h3><div class="table-wrap"><table class="agent-table"><thead><tr><th class="l">Date</th><th>Manual calls</th><th>Duration</th><th class="l">Approved by</th></tr></thead>
+      <tbody>${[...days].reverse().map((d) => `<tr><td class="l nw">${short(String(d.call_date).slice(0, 10))}</td><td class="num">${num(+d.n_manual)}</td><td class="num">${fmtHm(+d.manual_dur)}</td>
+        <td class="l">${esc(uniqueApprovals(d.approvals))}</td></tr>`).join("") || `<tr><td class="l muted" colspan="4">No manual calls in these dates.</td></tr>`}</tbody></table></div></section>`;
+  const drawD = () => { const g = byGrain(cur.days, S.dgrain, ["n_manual", "manual_dur"]); chart("d-trend", manualBars(g.map(([kk]) => grainLabel(kk, S.dgrain)), g)); };
+  drawD();
+  $("d-grain").onclick = (e) => { const bt = e.target.closest("button[data-g]"); if (!bt) return; S.dgrain = bt.dataset.g;
+    document.querySelectorAll("#d-grain button").forEach((x) => x.classList.toggle("on", x === bt)); drawD(); };
 }
 $("d-close").addEventListener("click", () => { $("drawer").hidden = true; S.caller = null; });
 $("d-cdr").addEventListener("click", () => { if (S.caller) downloadCdr(S.caller);
