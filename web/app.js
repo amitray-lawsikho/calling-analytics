@@ -250,7 +250,7 @@ async function render() {
 }
 
 /* shared bits */
-const kpiCard = (label, v, c, p, pt, hint = "", fmtPrev = num) => `<div class="kpi" ${hint ? `title="${esc(hint)}"` : ""}><div class="k">${label}</div><div class="v">${v}</div>
+const kpiCard = (label, v, c, p, pt, hint = "", fmtPrev = num) => (!+c && !+p) ? "" : `<div class="kpi" ${hint ? `title="${esc(hint)}"` : ""}><div class="k">${label}</div><div class="v">${v}</div>
   <div class="d">${chHtml(change(c, p))} vs ${esc(fmtPrev(p))} <span class="muted small">(${esc(pt)})</span></div></div>`;
 function cards(rows, src) {   // KPI totals: callers in the current team sheet only
   const m = rows.filter(inSheet), s = src.filter((r) => r.team != null), ss = (k) => s.reduce((a, r) => a + (+r[k] || 0), 0), sm = (k) => m.reduce((a, r) => a + (+r[k] || 0), 0);
@@ -316,14 +316,14 @@ function pageOverall({ r, rep, prep, uniq, puniq, daily }) {
   const rows = S.rows, cur = cards(rows, rep.rows), prv = cards(S.prow, prep.rows), pt = prevText(r), mr = cur.rows.length ? cur.rows : rows;
   const t1 = topBy(mr, "raw_dur_sec"), t2 = topBy(mr, "TOTAL CALLS"), t3 = topBy(mr, "20+ MIN CALLS"),
     t4 = topBy(mr, "FOLLOW UPS DONE"), t5 = topBy(mr, "DISCOVERY DONE"), t6 = topBy(mr, "ROADMAPS DONE");
-  const hl = (label, x, val) => `<div class="hl"><div class="k">${label}</div><div class="n caller-open" data-c="${esc(x.CALLER)}">${esc(x.CALLER)}</div><div class="d">${esc(val)}</div></div>`;
+  const hl = (label, x, val, n) => !+n ? "" : `<div class="hl"><div class="k">${label}</div><div class="n caller-open" data-c="${esc(x.CALLER)}">${esc(x.CALLER)}</div><div class="d">${esc(val)}</div></div>`;
   const issueCount = Object.fromEntries(ISSUES.map((i) => [i, rows.filter((x) => x._issues.includes(i)).length]));
   $("content").innerHTML = `
     <h4 class="section-h">🏆 Top 6 performance highlights</h4>
     <section class="highlights">
-      ${hl("🥇 Top performer", t1, `${t1["CALL DURATION > 3 MINS"]} Duration`)}${hl("✆ Highest calls", t2, `${t2["TOTAL CALLS"]} Total Calls`)}
-      ${hl("🗣️ Deep engagement", t3, `${t3["20+ MIN CALLS"]} Long Calls`)}${hl("📋 Highest follow ups", t4, `${t4["FOLLOW UPS DONE"]} Follow Ups Done`)}
-      ${hl("🔍 Highest discovery", t5, `${t5["DISCOVERY DONE"]} Discoveries Done`)}${hl("🗺️ Highest roadmap", t6, `${t6["ROADMAPS DONE"]} Roadmaps Done`)}
+      ${hl("🥇 Top performer", t1, `${t1["CALL DURATION > 3 MINS"]} Duration`, t1.raw_dur_sec)}${hl("✆ Highest calls", t2, `${t2["TOTAL CALLS"]} Total Calls`, t2["TOTAL CALLS"])}
+      ${hl("🗣️ Deep engagement", t3, `${t3["20+ MIN CALLS"]} Long Calls`, t3["20+ MIN CALLS"])}${hl("📋 Highest follow ups", t4, `${t4["FOLLOW UPS DONE"]} Follow Ups Done`, t4["FOLLOW UPS DONE"])}
+      ${hl("🔍 Highest discovery", t5, `${t5["DISCOVERY DONE"]} Discoveries Done`, t5["DISCOVERY DONE"])}${hl("🗺️ Highest roadmap", t6, `${t6["ROADMAPS DONE"]} Roadmaps Done`, t6["ROADMAPS DONE"])}
     </section>
     <h4 class="section-h">Summary metrics</h4>
     <p class="muted small" style="margin:-4px 0 10px;text-align:center">Callers in the current team sheet</p>
