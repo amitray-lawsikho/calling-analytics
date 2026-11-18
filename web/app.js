@@ -917,7 +917,7 @@ async function start() {
   const [f, t] = preset("today"); $("from").value = f; $("to").value = t; markPreset("today");
   setPage(location.hash.slice(1));
 }
-$("signout").addEventListener("click", async () => { await sb.auth.signOut({ scope: "local" }); location.replace(PORTAL); });
+$("signout").addEventListener("click", async () => { await sb.auth.signOut({ scope: "local" }); location.replace(PORTAL + "?signout=1"); });
 
 /* ---------- events ---------- */
 window.addEventListener("hashchange", () => setPage(location.hash.slice(1)));
