@@ -897,6 +897,13 @@ function toPortal(key) {
   try { sessionStorage.setItem("si-hop", String(Date.now())); } catch (_) {}
   location.replace(`${PORTAL}go.html?d=${key}`); return true;
 }
+// who is signed in, shown in the sidebar box (name from the email: amit.ray@… → Amit Ray)
+function fillMe(email) {
+  const e = String(email || ""), n = e.split("@")[0].split(/[._-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
+  const box = document.getElementById("si-me"); if (!box) return;
+  box.querySelector(".si-av").textContent = (n || "?")[0]; box.querySelector("b").textContent = n || e; box.querySelector("small").textContent = e;
+  box.title = e; box.hidden = false;
+}
 async function start() {
   themeButton();
   const { data: { session } } = await sb.auth.getSession();
@@ -904,7 +911,7 @@ async function start() {
   const { data: ok } = await sb.rpc("is_allowed");
   if (!ok) { if (toPortal("calling")) return; $("auth").hidden = false; $("app").hidden = true;
     $("auth-msg").textContent = `${session.user.email} has no access to this dashboard. Ask a portal admin to give it in the Sales Intelligence Portal.`; return; }
-  $("auth").hidden = true; $("app").hidden = false;
+  $("auth").hidden = true; $("app").hidden = false; fillMe(session.user.email);
   Object.keys(MS).forEach(msInit);
   try { await loadMeta(); } catch (e) { $("content").innerHTML = `<div class="card empty">Could not load: ${esc(e.message || e)}</div>`; return; }
   const [f, t] = preset("today"); $("from").value = f; $("to").value = t; markPreset("today");
