@@ -894,7 +894,7 @@ async function start() {
   if (!session) { $("auth").hidden = false; $("app").hidden = true; return; }
   const { data: ok } = await sb.rpc("is_allowed");
   if (!ok) { $("auth").hidden = false; $("app").hidden = true;
-    $("auth-msg").textContent = `${session.user.email} is signed in, but only @lawsikho.in and @addictivelearn.com emails can open this dashboard.`; return; }
+    $("auth-msg").textContent = `${session.user.email} is signed in, but has no access to this dashboard yet. Ask an admin to add you in the Sales Intelligence portal (Settings).`; return; }
   $("auth").hidden = true; $("app").hidden = false;
   Object.keys(MS).forEach(msInit);
   try { await loadMeta(); } catch (e) { $("content").innerHTML = `<div class="card empty">Could not load: ${esc(e.message || e)}</div>`; return; }
