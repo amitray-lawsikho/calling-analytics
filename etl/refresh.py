@@ -83,8 +83,8 @@ def main(argv: list[str] | None = None) -> int:
     store = Store()
     now = datetime.now(IST)
     today = now.date()
-    keep_from = today - timedelta(days=C.KEEP_DAYS - 1)          # manual calls, stage changes
-    calls_from = today - timedelta(days=C.CALL_KEEP_DAYS - 1)    # dialler calls, and the days whose summaries are rebuilt
+    keep_from = today - timedelta(days=C.KEEP_DAYS - 1)          # stage changes
+    calls_from = today - timedelta(days=C.CALL_KEEP_DAYS - 1)    # dialler + manual calls, and the days whose summaries are rebuilt
     ampm = now.strftime("%d/%m/%Y %I:%M %p")
     detail: dict = {"updated_at_ampm": ampm, "full": full, "backfill": backfill}
     errors: list[str] = []
@@ -150,13 +150,13 @@ def main(argv: list[str] | None = None) -> int:
         detail["calls_read"] = len(rows)
 
         # 3. manual calls + stage changes (whole sheets; table = sheet for the kept dates)
-        man = S.manual_rows(S.read_csv(C.MANUAL_CSV_URL), keep_from, today)
-        stored = lambda table: {int(i): d for i, d in store.rpc("ca_ids", {"p_table": table, "p_from": keep_from.isoformat()})}
-        before = stored("manual_calls")
+        man = S.manual_rows(S.read_csv(C.MANUAL_CSV_URL), calls_from, today)
+        stored = lambda table, frm=keep_from: {int(i): d for i, d in store.rpc("ca_ids", {"p_table": table, "p_from": frm.isoformat()})}
+        before = stored("manual_calls", calls_from)
         now_ids = {r["id"] for r in man}
         touched |= {date.fromisoformat(d) for i, d in before.items() if i not in now_ids}
         touched |= {date.fromisoformat(r["call_date"]) for r in man if r["id"] not in before}
-        store.rpc("ca_sync_ids", {"p_table": "manual_calls", "p_from": keep_from.isoformat(), "p_ids": list(now_ids)})
+        store.rpc("ca_sync_ids", {"p_table": "manual_calls", "p_from": calls_from.isoformat(), "p_ids": list(now_ids)})
         store.upsert("manual_calls", [r for r in man if r["id"] not in before], "id", ignore_existing=True)
         stg = S.stage_rows(S.read_csv(C.STAGE_CSV_URL, dtype=str), keep_from)
         before = stored("stage_changes")

@@ -150,6 +150,8 @@ def test_calls_kept_60_days():
     assert "set(day_list(calls_from, today))" in src and "d >= calls_from}" in src
     assert "bigquery_history(calls_from" in src
     assert "day_list(keep_from" not in src
+    assert "S.manual_rows(S.read_csv(C.MANUAL_CSV_URL), calls_from, today)" in src      # manual calls: 60 days too
+    assert '"p_table": "manual_calls", "p_from": calls_from.isoformat()' in src
 
 
 def test_update_button_refuses_recent():

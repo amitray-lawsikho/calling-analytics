@@ -21,5 +21,5 @@ Same numbers as the Streamlit calling dashboard (`final_dashboard.py`, Dynamic D
 | Cards and highlights | Only callers with a team in the current team sheet (Amit, 27 Oct 2026). Tables still list everyone; others show under team "Others" |
 | Agent performance table | Callers with 0 calls or 0 duration > 3 mins are not listed (also not in its download) |
 | Downloads | CDR_LOG.csv and Stage_Changed_Report.csv: same columns, order and text as Streamlit's files |
-| Storage | Individual dialler calls: last 60 days (Amit, 25 Nov 2026). Manual calls and stage changes: last 90 days. Per caller per day summaries: kept forever (only days that still hold calls are rebuilt) |
+| Storage | Individual dialler calls and manual calls: last 60 days (Amit, 25 Nov 2026). Stage changes: last 90 days. Per caller per day summaries: kept forever (only days that still hold calls are rebuilt) |
 | Refresh | 06:30 IST (full rebuild of the 90 days), 11:00, 13:00, 15:00, 17:00, 19:00, 21:00 IST via Supabase pg_cron, plus the Update button |
