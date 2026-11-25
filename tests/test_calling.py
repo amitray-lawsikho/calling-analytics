@@ -157,3 +157,11 @@ def test_update_button_refuses_recent():
     import pathlib
     js = pathlib.Path(__file__).resolve().parents[1].joinpath("web", "app.js").read_text()
     assert 'data === "recent"' in js
+
+
+def test_update_button_admins_only():
+    """Amit, 25 Nov 2026: Update data shows only for Calling admins (ca_can_update; request_refresh also refuses viewers)."""
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parents[1]
+    assert '<button id="update" class="btn primary block" hidden>' in root.joinpath("web", "index.html").read_text()
+    assert 'sb.rpc("ca_can_update")' in root.joinpath("web", "app.js").read_text()

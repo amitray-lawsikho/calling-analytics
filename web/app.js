@@ -913,6 +913,8 @@ async function start() {
   if (!ok) { if (toPortal("calling")) return; $("auth").hidden = false; $("app").hidden = true;
     $("auth-msg").textContent = `${session.user.email} has no access to this dashboard. Ask a portal admin to give it in the Sales Intelligence Portal.`; return; }
   $("auth").hidden = true; $("app").hidden = false; fillMe(session.user.email);
+  // Update data for this dashboard's admins only (Amit, 25 Nov 2026); viewers see when the data was updated
+  sb.rpc("ca_can_update").then(({ data }) => { $("update").hidden = !data; });
   Object.keys(MS).forEach(msInit);
   try { await loadMeta(); } catch (e) { $("content").innerHTML = `<div class="card empty">Could not load: ${esc(e.message || e)}</div>`; return; }
   const [f, t] = preset("today"); $("from").value = f; $("to").value = t; markPreset("today");

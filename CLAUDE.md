@@ -17,7 +17,7 @@ manual calls and LSQ stage changes. Rules: [docs/definitions.md](docs/definition
 - `legacy/`: the old BigQuery pipelines, kept for reference only.
 
 ## Rules
-- Update button (Amit, 25 Nov 2026): `request_refresh` refuses while a refresh is running ('already_running') and within an hour
+- Update button (Amit, 25 Nov 2026): only Calling admins (`portal.can_admin('calling')`; button shown via `ca_can_update`); `request_refresh` refuses while a refresh is running ('already_running') and within an hour
   of the last successful one ('recent'), so refreshes never pile up; pg_cron and the daily reports call `_dispatch_refresh` directly.
 - Secrets only in GitHub secrets: SUPABASE_SERVICE_KEY, BQ_CREDENTIALS, ACEFONE_API_KEY, ACEFONE_ACCOUNT_ID, MCUBE_TOKEN,
   OZONETEL_API_KEY, OZONETEL_USERNAME, TEAM_SHEET_URL. Never print them.
