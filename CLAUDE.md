@@ -13,6 +13,8 @@ manual calls and LSQ stage changes. Rules: [docs/definitions.md](docs/definition
 - `web/`: static site (no build step), Elite Green theme; no sign-in page of its own: opened only through the Sales Intelligence Portal (one-time sign-in link; Amit, 18 Nov 2026), `is_allowed()` = access to `calling` in `portal.access`.
 - Database: calls and manual_calls (60 days since 25 Nov 2026, ids = 64-bit hash; stage_changes 90 days; agent_day from 27 Aug 2026, the first day with dialler calls), manual_calls, stage_changes, team_map, load_batch, agent_day, stage_day,
   refresh_log, refresh_requests; RPCs ca_meta, ca_report, ca_unique_leads, ca_cdr, ca_stage_export (dashboard), ca_* helpers (pipeline).
+  `ca_watermarks` reads only the newest call per dialler through the (src, call_datetime) index (Amit, 25 Nov 2026: its old
+  count(*) read the whole calls table every run, and the pipeline's retries stacked copies of it). No full-table reads of `calls` in a refresh.
   Change schema with a migration, keep RLS on. Free plan: keep the database under 500 MB.
 - `legacy/`: the old BigQuery pipelines, kept for reference only.
 
