@@ -138,3 +138,22 @@ def test_manual_and_stage_sheets():
     st = stage_rows(s, date(2026, 8, 1))
     assert len(st) == 1 and st[0]["phone"] == "9876543210" and st[0]["last_name"] == "9876543210" and st[0]["changed_by"] == "Asha"
     assert st[0]["comment"] == "c" and st[0]["date"] == "2026-10-25"
+
+
+def test_calls_kept_60_days():
+    """Amit, 25 Nov 2026: dialler calls 60 days, manual calls / stage changes 90; summaries rebuilt only for days that hold calls."""
+    import pathlib
+    from etl import config as C
+    assert C.CALL_KEEP_DAYS == 60 and C.KEEP_DAYS == 90
+    src = pathlib.Path(__file__).resolve().parents[1].joinpath("etl", "refresh.py").read_text()
+    assert '"p_calls_from": calls_from.isoformat()' in src
+    assert "set(day_list(calls_from, today))" in src and "d >= calls_from}" in src
+    assert "bigquery_history(calls_from" in src
+    assert "day_list(keep_from" not in src
+
+
+def test_update_button_refuses_recent():
+    """Amit, 25 Nov 2026: the Update button says so when request_refresh returns 'recent' (an update in the last hour)."""
+    import pathlib
+    js = pathlib.Path(__file__).resolve().parents[1].joinpath("web", "app.js").read_text()
+    assert 'data === "recent"' in js

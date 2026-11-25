@@ -83,7 +83,8 @@ def main(argv: list[str] | None = None) -> int:
     store = Store()
     now = datetime.now(IST)
     today = now.date()
-    keep_from = today - timedelta(days=C.KEEP_DAYS - 1)
+    keep_from = today - timedelta(days=C.KEEP_DAYS - 1)          # manual calls, stage changes
+    calls_from = today - timedelta(days=C.CALL_KEEP_DAYS - 1)    # dialler calls, and the days whose summaries are rebuilt
     ampm = now.strftime("%d/%m/%Y %I:%M %p")
     detail: dict = {"updated_at_ampm": ampm, "full": full, "backfill": backfill}
     errors: list[str] = []
@@ -106,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
         # 2. calls
         calls: list[dict] = []
         if backfill:
-            calls += S.bigquery_history(keep_from, log)
+            calls += S.bigquery_history(calls_from, log)
         wm = store.rpc("ca_watermarks")
         fallback = now - timedelta(days=2)
         for src, fetch in (("A", S.fetch_acefone), ("M", S.fetch_mcube)):
@@ -131,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
             errors.append(f"O: {e}")
             log(f"::warning::Ozonetel not refreshed: {e}")
 
-        calls = [c for c in calls if c["call_date"] and (c["call_date"] if isinstance(c["call_date"], date) else date.fromisoformat(str(c["call_date"]))) >= keep_from]
+        calls = [c for c in calls if c["call_date"] and (c["call_date"] if isinstance(c["call_date"], date) else date.fromisoformat(str(c["call_date"]))) >= calls_from]
         batches = {}
         for c in calls:
             if c["ampm"] not in batches:
@@ -165,8 +166,9 @@ def main(argv: list[str] | None = None) -> int:
         detail.update({"manual_rows": len(man), "stage_rows": len(stg), "stage_new": len(new_stage)})
 
         # 4. summaries
-        trimmed = store.rpc("ca_trim", {"p_keep_from": keep_from.isoformat()})
-        days = set(day_list(keep_from, today)) if (full or backfill or team_changed) else {d for d in touched if d >= keep_from}
+        trimmed = store.rpc("ca_trim", {"p_keep_from": keep_from.isoformat(), "p_calls_from": calls_from.isoformat()})
+        # a day's summary needs its calls, so only days still holding calls are rebuilt; older summaries stay as they are
+        days = set(day_list(calls_from, today)) if (full or backfill or team_changed) else {d for d in touched if d >= calls_from}
         days |= {today, today - timedelta(days=1)}
         detail["summary_days"] = len(days)
         detail["agent_day_rows"] = build_days(store, days, tmap, today)

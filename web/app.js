@@ -623,7 +623,7 @@ async function openCaller(name) {
   const parts = PARTS.map(([label, f]) => { const h = hrs.filter((x) => f(+x.hr)), s = (kk) => h.reduce((t, x) => t + (+x[kk] || 0), 0);
     return { label, calls: s("calls"), ans: s("answered"), c3: s("calls_3m"), dur: s("dur_3m") }; });
   const partTotal = parts.reduce((t, p) => t + p.calls, 0);
-  const hrsNote = cur.hours_from && r.from < cur.hours_from ? `<p class="note">Time of day covers ${nice(cur.hours_from)} onwards (individual calls are kept for 90 days).</p>` : "";
+  const hrsNote = cur.hours_from && r.from < cur.hours_from ? `<p class="note">Time of day covers ${nice(cur.hours_from)} onwards (individual calls are kept for 60 days).</p>` : "";
   const approvals = uniqueApprovals(cur.days.flatMap((d) => d.approvals || []));
   const s2 = (kk) => cur.days.reduce((t, d) => t + (+d[kk] || 0), 0);
   const dayRows = [...cur.days].reverse().map((d) => { const dd = String(d.call_date).slice(0, 10), st = stageBy.get(dd) || {};
@@ -859,6 +859,7 @@ async function update() {
   const before = (await lastRun())?.run_at || "";
   const { data, error } = await sb.rpc("request_refresh");
   if (error) { $("update-msg").textContent = /token/i.test(error.message) ? "Update isn't set up yet (GitHub token missing in Supabase)." : error.message; btn.disabled = false; return; }
+  if (data === "recent") { $("update-msg").textContent = "The data was updated less than an hour ago. To keep the database fast, Update runs at most once an hour."; btn.disabled = false; return; }
   $("update-msg").textContent = data === "already_running" ? "An update is already running…" : "Update started. This takes about 5–15 minutes (the diallers limit how fast calls can be read)…";
   const t0 = Date.now();
   const poll = async () => {

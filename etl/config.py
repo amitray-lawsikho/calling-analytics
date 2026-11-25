@@ -20,7 +20,9 @@ ACEFONE_URL = "https://api.acefone.in/v1/call/records"
 MCUBE_URL = "https://config.mcube.com/Restmcube-api/callsdatabydate"
 OZONETEL_URL = "https://in1-ccaas-api.ozonetel.com/ca_reports/fetchCDRDetails"
 
-KEEP_DAYS = 90          # individual calls / stage changes / manual calls kept this long; daily summaries kept forever
+KEEP_DAYS = 90          # stage changes / manual calls kept this long; daily summaries kept forever
+CALL_KEEP_DAYS = 60     # individual dialler calls kept this long (Amit, 25 Nov 2026: 90 days outgrew the free database);
+                        # agent_day / stage_day for older days are never rebuilt or deleted
 REWIND_MIN = 30         # re-read this much before the last stored call (duplicates are dropped by id)
 LAG_MIN = 5             # don't read the last 5 minutes (durations still settling)
 
