@@ -69,7 +69,7 @@ def stream_check(url: str | None, label: str, headers: dict | None = None):
         r = requests.get(url, headers={"Range": "bytes=0-1023", "Origin": "https://example.org", **(headers or {})}, timeout=30, stream=True)
         h = r.headers
         say(f"\n{label} recording check (link not printed): HTTP {r.status_code}, host {urlparse(url).netloc}, "
-            f"content-type={h.get('Content-Type')}, content-disposition={h.get('Content-Disposition')}, "
+            f"content-type={(h.get('Content-Type') or '')[:40]}, disposition={(h.get('Content-Disposition') or 'none').split(';')[0]}, "
             f"accept-ranges={h.get('Accept-Ranges')}, access-control-allow-origin={h.get('Access-Control-Allow-Origin')}, "
             f"redirected={bool(r.history)}")
         r.close()

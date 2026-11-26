@@ -1,11 +1,8 @@
 name: Field check (one-off, read-only)
 
-# Runs once when the field-check branch is pushed. Reads MCube and Acefone only; prints field names and masked
+# Manual run only (the first run's log exposed a signed recording link from a response header; that is now cut). Reads MCube and Acefone only; prints field names and masked
 # shapes to the run summary. No Supabase access, no writes. Delete this file after the check.
 on:
-  push:
-    branches: [field-check]
-    paths: [".github/workflows/field_check.yml", "tools/field_check.py"]
   workflow_dispatch:
 
 permissions:
