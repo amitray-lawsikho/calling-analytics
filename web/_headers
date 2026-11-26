@@ -1,0 +1,3 @@
+# Browsers check for a newer copy on every load (cheap 304s), so a deploy is never half-seen (Amit, 26 Nov 2026)
+/*
+  Cache-Control: no-cache
