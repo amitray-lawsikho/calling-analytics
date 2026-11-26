@@ -178,7 +178,7 @@ async function pageCalls(a, seq, append = false) {
   </div></section>`;
 }
 /* All Call Recordings (Amit, 26 Nov 2026): every answered call that has a recording, any length, filter by talk time and who ended it */
-const TALKR = { "": ["Any length", 0, null], s: ["Under 1 min", 0, 60], m: ["1 – 3 min", 60, 180], l: ["3 – 10 min", 180, 600], xl: ["10 min +", 600, null] };
+const TALKR = { "": ["Any length", 0, null], s: ["Under 1 min", 0, 60], m: ["1 – 3 min", 60, 180], l: ["3 – 10 min", 180, 600], xl: ["10 – 20 min", 600, 1200], xxl: ["20 min +", 1200, null] };
 async function pageAll(a, seq, append = false) {
   const L = S.all;
   if (!append) { L.offset = 0; L.rows = []; stopAudio(); }
