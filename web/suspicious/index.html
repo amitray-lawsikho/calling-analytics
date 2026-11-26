@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Suspicious Call Analysis</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230a0a0b' stroke='%23a78bfa' stroke-width='3'/%3E%3Cpath d='M18 34v-4a14 14 0 0 1 28 0v4M18 34h5v10h-5zM41 34h5v10h-5z' fill='none' stroke='%23a78bfa' stroke-width='3.4' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="sus.css">
+  <script>try { const t = localStorage.getItem("ca-theme"); if (t) document.documentElement.dataset.theme = t; } catch (_) {}</script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="../config.js"></script>
+</head>
+<body>
+  <div id="boot" class="boot" aria-hidden="true">
+    <div class="boot-mark"><span class="ring"></span><span class="ring r2"></span>
+      <svg viewBox="0 0 24 24"><path d="M5 14v-2a7 7 0 0 1 14 0v2"/><path d="M5 14h3v5H5zM16 14h3v5h-3z"/></svg></div>
+    <div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
+    <p class="eyebrow">Suspicious Call Analysis</p>
+  </div>
+
+  <section id="auth" class="auth" hidden>
+    <div class="auth-art">
+      <div class="monogram lg"><svg viewBox="0 0 24 24" style="width:28px;height:28px"><path d="M5 14v-2a7 7 0 0 1 14 0v2"/><path d="M5 14h3v5H5zM16 14h3v5h-3z"/></svg></div>
+      <p class="eyebrow">LawSikho · Skill Arbitrage</p>
+      <h1 class="auth-title">Suspicious Calls</h1>
+      <div class="rule"><span></span><i>◆</i><span></span></div>
+      <p class="auth-lead">Calls the agent ended within seconds of the customer picking up, cuts before the customer could answer, and dialer calls not taken — with the recording one click away.</p>
+      <ul class="auth-points">
+        <li><b>Report</b> pick-up cuts per agent for 5 s, 10 s, 20 s, 1 min and 3 min</li>
+        <li><b>Daily</b> how each agent's cut rate moves day by day</li>
+        <li><b>Listen</b> every suspicious call, played right in the page</li>
+      </ul>
+    </div>
+    <div class="auth-panel">
+      <div class="auth-card">
+        <p class="eyebrow">Sales Intelligence Portal</p>
+        <h2 class="auth-h">Open it from the portal</h2>
+        <p id="auth-msg" class="msg">This page opens through the Sales Intelligence Portal. Open Calling Analytics there first, then come back here.</p>
+        <a class="btn primary block" href="https://sales-intelligence-portal.amitray.workers.dev/go.html?d=calling">Go to the Sales Intelligence Portal</a>
+        <p class="credit-auth">Designed and developed by Amit Ray · amitray@lawsikho.in</p>
+      </div>
+    </div>
+  </section>
+
+  <div id="app" class="shell" hidden>
+    <aside class="side" id="side">
+      <div class="brand"><span class="monogram"><svg viewBox="0 0 24 24" style="width:20px;height:20px"><path d="M5 14v-2a7 7 0 0 1 14 0v2"/><path d="M5 14h3v5H5zM16 14h3v5h-3z"/></svg></span>
+        <span class="brand-t">Suspicious Calls<small>Call audit</small></span></div>
+      <nav>
+        <a href="#report" data-page="report"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 16v-5M12 16V8M16 16v-3"/></svg>Agent Report</a>
+        <a href="#daily" data-page="daily"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16M9 4v16"/></svg>Daily Heatmap</a>
+        <a href="#calls" data-page="calls"><svg viewBox="0 0 24 24"><path d="M5 14v-2a7 7 0 0 1 14 0v2"/><path d="M5 14h3v5H5zM16 14h3v5h-3z"/></svg>Listen to Calls</a>
+        <div class="nav-h nav-gap">Related</div>
+        <a href="../" class="ext"><svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>Calling Analytics</a>
+      </nav>
+      <div class="side-foot">
+        <div class="si-me" id="si-me" hidden><span class="si-av"></span><span class="si-t"><b></b><small></small></span></div>
+        <div id="fresh" class="small muted"></div>
+        <div class="small muted">Updates with every Calling Analytics refresh.</div>
+        <div class="side-row">
+          <button id="theme" class="btn ghost sm"></button>
+          <button id="signout" class="btn ghost sm">Sign out</button>
+        </div>
+        <div class="credit">Designed and developed by Amit Ray<br><a href="mailto:amitray@lawsikho.in">amitray@lawsikho.in</a></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="page-h">
+        <button id="menu" class="btn ghost sm icon" title="Show / hide the sidebar" aria-label="Show or hide the sidebar"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+        <div>
+          <h1 id="page-title">Agent Report</h1>
+          <p id="page-sub" class="muted small"></p>
+        </div>
+        <a class="si-home" href="https://sales-intelligence-portal.amitray.workers.dev/" aria-label="Home: back to the Sales Intelligence Portal"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 11 12 4l8.5 7"/><path d="M5.5 9.5V20h4.75v-5.5h3.5V20h4.75V9.5"/></svg><span class="si-home-l">Home</span><span class="si-tip" role="tooltip"><b>Sales Intelligence Portal</b>Back to all your dashboards</span></a>
+      </header>
+
+      <div id="warn" class="warn-bar" hidden></div>
+
+      <section class="filters card">
+        <div class="filters-top">
+          <div class="seg" id="presets">
+            <button data-p="today">Today</button><button data-p="yesterday">Yesterday</button>
+            <button data-p="week">This week</button><button data-p="lastweek">Last week</button>
+            <button data-p="month">This month</button><button data-p="lastmonth">Last month</button><button data-p="all">Last 60 days</button>
+          </div>
+          <button type="button" id="clear-filters" class="btn ghost sm" title="This month and no filters">✕ Clear filters</button>
+        </div>
+        <div class="filter-row">
+          <label>From <input type="date" id="from"></label>
+          <label>To <input type="date" id="to"></label>
+          <div class="lbl"><span>Vertical</span><div class="ms" id="ms-vertical"></div></div>
+          <div class="lbl"><span>Team</span><div class="ms" id="ms-team"></div></div>
+          <div class="lbl"><span>Caller</span><div class="ms" id="ms-caller"></div></div>
+        </div>
+        <div class="filter-row filter-2">
+          <div class="lbl"><span>Talk time after pick-up, agent ended the call</span>
+            <div class="seg talk" id="talk"><button data-t="5">≤ 5 s</button><button data-t="10">≤ 10 s</button><button data-t="20">≤ 20 s</button><button data-t="60">≤ 1 min</button><button data-t="180">≤ 3 min</button></div></div>
+          <div class="lbl"><span>Dialler</span>
+            <div class="seg" id="src"><button data-s="">All</button><button data-s="M">MCube</button><button data-s="A">Acefone</button></div></div>
+        </div>
+      </section>
+
+      <div id="busy" class="busy" hidden><span class="spin"></span>Loading…</div>
+      <div id="content"></div>
+    </main>
+  </div>
+  <audio id="audio" preload="none"></audio>
+  <script src="app.js"></script>
+</body>
+</html>

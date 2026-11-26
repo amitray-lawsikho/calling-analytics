@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import date, datetime, timedelta
@@ -54,6 +55,10 @@ def main(argv=None) -> int:
         log(f"{d}: MCube {stats['M']}, Acefone {stats['A']} calls ({(time.time() - t0) / 60:.0f} min)")
         d += timedelta(days=1)
     log(json.dumps({"done_through": (d - timedelta(days=1)).isoformat(), "minutes": round((time.time() - t0) / 60)}))
+    out = os.environ.get("GITHUB_OUTPUT")
+    if out:
+        with open(out, "a") as f:
+            f.write(f"more={'true' if d <= today else 'false'}\n")
     return 0
 
 

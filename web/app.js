@@ -915,6 +915,8 @@ async function start() {
   $("auth").hidden = true; $("app").hidden = false; fillMe(session.user.email);
   // Update data for this dashboard's admins only (Amit, 25 Nov 2026); viewers see when the data was updated
   sb.rpc("ca_can_update").then(({ data }) => { $("update").hidden = !data; });
+  // Suspicious Call Analysis (Amit, 26 Nov 2026): link shown to the people who can open it (Calling admins or portal access)
+  sb.rpc("sus_allowed").then(({ data }) => { const n = $("nav-sus"); if (n) n.hidden = !data; });
   Object.keys(MS).forEach(msInit);
   try { await loadMeta(); } catch (e) { $("content").innerHTML = `<div class="card empty">Could not load: ${esc(e.message || e)}</div>`; return; }
   const [f, t] = preset("today"); $("from").value = f; $("to").value = t; markPreset("today");

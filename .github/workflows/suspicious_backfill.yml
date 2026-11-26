@@ -1,7 +1,8 @@
 name: Suspicious calls backfill (60 days, resumable)
 
 # One-time load of the last 60 days of MCube + Acefone disconnect / talk / ring / recording data into the sus_* tables.
-# Same concurrency group as the Calling refresh, so the two never run together. Run again if it stops on the time budget.
+# Own concurrency group (sharing the refresh's group would let a queued backfill cancel a queued Calling refresh).
+# When it stops on the time budget it starts itself again until the last day is loaded.
 on:
   workflow_dispatch:
     inputs:
@@ -13,11 +14,12 @@ on:
         default: "false"
 
 concurrency:
-  group: calling-refresh
+  group: suspicious-backfill
   cancel-in-progress: false
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
   backfill:
@@ -31,9 +33,15 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - run: python -m pytest -q
-      - run: python -m etl.sus_backfill --hours "${{ inputs.hours }}" --restart "${{ inputs.restart }}"
+      - id: run
+        run: python -m etl.sus_backfill --hours "${{ inputs.hours }}" --restart "${{ inputs.restart }}"
         env:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           ACEFONE_API_KEY: ${{ secrets.ACEFONE_API_KEY }}
           ACEFONE_ACCOUNT_ID: ${{ secrets.ACEFONE_ACCOUNT_ID }}
           MCUBE_TOKEN: ${{ secrets.MCUBE_TOKEN }}
+      - name: Continue if days are left
+        if: steps.run.outputs.more == 'true'
+        run: gh api -X POST "repos/${{ github.repository }}/actions/workflows/suspicious_backfill.yml/dispatches" -f ref=main -f "inputs[hours]=${{ inputs.hours }}" -f "inputs[restart]=false"
+        env:
+          GH_TOKEN: ${{ github.token }}
