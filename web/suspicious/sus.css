@@ -82,6 +82,8 @@
 .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); cursor: pointer; text-transform: none; letter-spacing: 0; font-weight: 500; }
 .toggle input { accent-color: var(--gold); width: auto; }
 .calls td { vertical-align: middle; }
+.calls td:nth-child(4) { white-space: normal; min-width: 120px; max-width: 180px; }   /* team wraps, so Listen and the numbers fit */
+.calls td:first-child, .calls th:first-child { width: 52px; padding-right: 4px; }
 .calls tr.playing td { background: var(--gold-soft); }
 .calls .rep-n { display: inline-grid; place-items: center; min-width: 24px; height: 22px; padding: 0 6px; border-radius: 6px; font-weight: 700; font-size: 11.5px;
   background: var(--panel-2); border: 1px solid var(--line); }

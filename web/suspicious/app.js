@@ -12,7 +12,7 @@ const inr = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
 const num = (v) => (v == null || !isFinite(v) ? "–" : inr.format(v));
 const pct = (a, b) => (b > 0 ? (a / b) * 100 : 0);
 const pctTxt = (a, b) => (b > 0 ? `${Math.round(pct(a, b))}%` : "–");
-const hm = (sec) => { sec = +sec || 0; const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60); return h ? `${h}h ${m}m` : `${m}m`; };
+const hm = (sec) => { const t = Math.round((+sec || 0) / 60), h = Math.floor(t / 60), m = t % 60; return h ? `${h}h ${m}m` : `${m}m`; };
 const mmss = (s) => { s = Math.max(0, Math.floor(+s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 const TALK = { 5: "≤ 5 s", 10: "≤ 10 s", 20: "≤ 20 s", 60: "≤ 1 min", 180: "≤ 3 min" };
 const SRC = { M: "MCube", A: "Acefone" };
@@ -170,18 +170,17 @@ async function pageCalls(a, seq, append = false) {
       <span class="small muted" style="margin-left:auto">${num(L.total)} calls</span></div>`;
   if (!L.rows.length) return `<section class="card rise"><div>${tools}<div class="empty">No calls the agent ended within ${TALK[S.talk].replace("≤ ", "")} for these filters.</div></div></section>`;
   return `<section class="card rise"><div>${tools}
-    <div class="table-wrap tall"><table class="calls agent-table"><thead><tr><th class="l">Time (IST)</th><th class="l">Agent</th><th class="l">Team</th><th class="l">Phone</th>
-      <th>Dialler</th><th>Talk</th><th>Customer ring</th><th title="Calls this agent cut on this number in the period">Cuts on number</th><th>Listen</th></tr></thead>
+    <div class="table-wrap tall"><table class="calls agent-table"><thead><tr><th class="l">Listen</th><th class="l">Time (IST)</th><th class="l">Agent</th><th class="l">Team</th><th class="l">Phone</th>
+      <th>Dialler</th><th>Talk</th><th>Customer ring</th><th title="Calls this agent cut on this number in the period">Cuts on number</th></tr></thead>
     <tbody id="l-body">${L.rows.map(callRow).join("")}</tbody></table></div>
     ${L.rows.length < L.total ? `<div class="more"><button class="btn sm" id="l-more">Load 50 more</button><span class="small muted">${num(L.rows.length)} of ${num(L.total)}</span></div>` : ""}
   </div></section>`;
 }
 const PLAY = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`, PAUSE = `<svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>`;
 function callRow(r) {
-  return `<tr data-id="${r.id}"><td class="l nw">${when(r.call_datetime)}</td><td class="l">${esc(r.caller)}</td><td class="l">${esc(r.team || "—")}</td>
+  return `<tr data-id="${r.id}"><td class="l"><button class="play" data-id="${r.id}" ${r.recording ? "" : "disabled title=\"No recording for this call\""} aria-label="Play recording">${PLAY}</button></td><td class="l nw">${when(r.call_datetime)}</td><td class="l">${esc(r.caller)}</td><td class="l">${esc(r.team || "—")}</td>
     <td class="l nw">${esc(r.client_number || "")}</td><td><span class="src-tag">${SRC[r.src] || r.src}</span></td><td class="num">${r.talk_sec}s</td>
-    <td class="num">${r.cring_sec == null ? "–" : r.cring_sec + "s"}</td><td><span class="rep-n ${r.cuts_on_number >= 2 ? "many" : ""}">${r.cuts_on_number}</span></td>
-    <td><button class="play" data-id="${r.id}" ${r.recording ? "" : "disabled title=\"No recording for this call\""} aria-label="Play recording">${PLAY}</button></td></tr>`;
+    <td class="num">${r.cring_sec == null ? "–" : r.cring_sec + "s"}</td><td><span class="rep-n ${r.cuts_on_number >= 2 ? "many" : ""}">${r.cuts_on_number}</span></td></tr>`;
 }
 
 function emptyState() {
