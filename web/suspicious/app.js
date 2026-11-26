@@ -303,13 +303,21 @@ const MOON = `<svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 
 function themeButton() { const dark = document.documentElement.dataset.theme !== "light"; $("theme").innerHTML = dark ? `${SUN} Light` : `${MOON} Dark`; }
 const unboot = () => { const b = $("boot"); b.classList.add("gone"); setTimeout(() => b.remove(), 600); };
 
+// Like every dashboard (portal rule, 18 Nov 2026): no sign-in of its own; without a session or access it goes to the portal,
+// which checks access to 'suspicious' and comes back with a one-time sign-in link (30-second guard against loops).
 const PORTAL = "https://sales-intelligence-portal.amitray.workers.dev/";
+function toPortal() {
+  let last = 0; try { last = +sessionStorage.getItem("si-hop") || 0; } catch (_) {}
+  if (Date.now() - last < 30000) return false;
+  try { sessionStorage.setItem("si-hop", String(Date.now())); } catch (_) {}
+  location.replace(`${PORTAL}go.html?d=suspicious`); return true;
+}
 async function start() {
   themeButton();
   const { data: { session } } = await sb.auth.getSession();
-  if (!session) { $("auth").hidden = false; unboot(); return; }
+  if (!session) { if (toPortal()) return; $("auth").hidden = false; unboot(); return; }
   const { data: ok } = await sb.rpc("sus_allowed");
-  if (!ok) { $("auth").hidden = false; $("auth-msg").textContent = `${session.user.email} has no access to Suspicious Call Analysis. Calling Analytics admins have it; a portal admin can give it to others.`; unboot(); return; }
+  if (!ok) { if (toPortal()) return; $("auth").hidden = false; $("auth-msg").textContent = `${session.user.email} has no access to Suspicious Call Analysis. Ask a portal admin to give it in the Sales Intelligence Portal.`; unboot(); return; }
   $("app").hidden = false; fillMe(session.user.email);
   Object.keys(MS).forEach(msInit);
   try { S.meta = await rpc("sus_meta", {}); } catch (e) { $("content").innerHTML = `<div class="card empty">Could not load: ${esc(e.message || e)}</div>`; unboot(); return; }

@@ -22,7 +22,7 @@ manual calls and LSQ stage changes. Rules: [docs/definitions.md](docs/definition
   the refresh calls `sus_ingest` in its own try/except, so it can never stop the Calling data. Tables `sus_day` (caller x day x
   dialler counts), `sus_calls` (answered calls the agent ended with talk <= 180 s, with recording), `sus_seen` (ids already
   counted, 3 days), `sus_state`; 60 days like `calls`. Schema: `supabase/migrations/20261126_suspicious_calls.sql`.
-  Access `sus_allowed()` = Calling admins or `suspicious` in `portal.access`. One-time history: workflow
+  Access `sus_allowed()` = `suspicious` in `portal.access` (its own dashboard in the portal; day one every Calling admin got it as admin). One-time history: workflow
   `suspicious_backfill.yml` (`etl/sus_backfill.py`, resumable, own concurrency group, restarts itself until the last day is in). Page: `web/suspicious/`.
   Ozonetel is not included (Amit, 26 Nov 2026).
 
