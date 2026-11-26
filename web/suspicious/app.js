@@ -3,7 +3,7 @@
    Low-ring cut = not answered, agent ended it while the customer's phone had rung <= 10 s. Executive Busy = dialer call not taken. */
 const sb = supabase.createClient(CA_CONFIG.supabaseUrl, CA_CONFIG.supabaseKey);
 const $ = (id) => document.getElementById(id);
-const S = { meta: null, page: "report", talk: 5, src: "", preset: "month", sel: { vertical: new Set(), team: new Set(), caller: new Set() },
+const S = { meta: null, page: "report", talk: "0-5", src: "", preset: "month", sel: { vertical: new Set(), team: new Set(), caller: new Set() },
   sort: { k: "rate", dir: -1 }, list: { rows: [], total: 0, offset: 0, number: "", repeat: false, sort: "new" },
   all: { rows: [], total: 0, offset: 0, number: "", talk: "", ended: "" }, seq: 0, playing: null };
 
@@ -15,7 +15,11 @@ const pct = (a, b) => (b > 0 ? (a / b) * 100 : 0);
 const pctTxt = (a, b) => (b > 0 ? `${Math.round(pct(a, b))}%` : "–");
 const hm = (sec) => { const t = Math.round((+sec || 0) / 60), h = Math.floor(t / 60), m = t % 60; return h ? `${h}h ${m}m` : `${m}m`; };
 const mmss = (s) => { s = Math.max(0, Math.floor(+s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
-const TALK = { 5: "≤ 5 s", 10: "≤ 10 s", 20: "≤ 20 s", 60: "≤ 1 min", 180: "≤ 3 min" };
+// talk-time bands after pick-up, agent ended the call (Amit, 26 Nov 2026): key "lo-max", lo exclusive (0 = from zero), max inclusive
+const TALK = { "0-180": "No length", "0-5": "≤ 5 s", "5-10": "5 – 10 s", "10-20": "10 – 20 s", "20-60": "20 s – 1 min", "60-180": "1 – 3 min" };
+const TALKP = { "0-180": "3 min or less", "0-5": "5 s or less", "5-10": "more than 5 s and up to 10 s", "10-20": "more than 10 s and up to 20 s",
+  "20-60": "more than 20 s and up to 1 min", "60-180": "more than 1 min and up to 3 min" };
+const band = () => S.talk.split("-").map(Number);
 const SRC = { M: "MCube", A: "Acefone" };
 
 /* ---------- dates (IST) ---------- */
@@ -45,7 +49,7 @@ const CACHE = new Map();
 function cached(fn, args) { const k = fn + JSON.stringify(args); if (!CACHE.has(k)) CACHE.set(k, rpc(fn, args).catch((e) => { CACHE.delete(k); throw e; })); return CACHE.get(k); }
 function args() {
   const a = (s) => (s.size ? [...s] : null);
-  return { p_from: $("from").value, p_to: $("to").value, p_max: S.talk, p_teams: a(S.sel.team), p_verticals: a(S.sel.vertical),
+  return { p_from: $("from").value, p_to: $("to").value, p_lo: band()[0], p_max: band()[1], p_teams: a(S.sel.team), p_verticals: a(S.sel.vertical),
     p_callers: a(S.sel.caller), p_srcs: S.src ? [S.src] : null };
 }
 
@@ -82,7 +86,7 @@ async function render() {
   const seq = ++S.seq, [title, fn] = PAGES[S.page];
   $("page-title").textContent = title;
   const a = args();
-  $("page-sub").innerHTML = `<b>${nice(a.p_from)}</b> – <b>${nice(a.p_to)}</b> · ${S.page === "all" ? "every answered call with a recording" : `agent ended the call, talk <b>${TALK[S.talk]}</b>`}${S.src ? ` · <b>${SRC[S.src]}</b>` : " · MCube + Acefone"}`;
+  $("page-sub").innerHTML = `<b>${nice(a.p_from)}</b> – <b>${nice(a.p_to)}</b> · ${S.page === "all" ? "every answered call with a recording" : `agent ended the call, talk <b>${TALK[S.talk] === "No length" ? "any length up to 3 min" : TALK[S.talk]}</b>`}${S.src ? ` · <b>${SRC[S.src]}</b>` : " · MCube + Acefone"}`;
   busy(true);
   try { const html = await fn(a, seq); if (seq !== S.seq) return; if (html != null) { $("content").innerHTML = html; afterRender(); } }
   catch (e) { if (seq === S.seq) $("content").innerHTML = `<div class="card empty">Could not load: ${esc(e.message || e)}</div>`; }
@@ -109,13 +113,13 @@ async function pageReport(a) {
   const th = (key, label, l) => `<th class="${l ? "l" : ""} ${k === key ? "sorted" : ""}" data-k="${key}">${label}${k === key ? (dir < 0 ? " ▾" : " ▴") : ""}</th>`;
   return `<section class="kpis rise">
       ${kpi("Answered calls", t.answered, `${num(t.calls)} calls dialled`)}
-      ${kpi(`Pick-up cuts <span class="hint">${TALK[S.talk]}</span>`, t.cuts, `${pctTxt(t.cuts, t.answered)} of answered calls`, { hot: true })}
+      ${kpi(`Pick-up cuts <span class="hint">${S.talk === "0-180" ? "≤ 3 min" : TALK[S.talk]}</span>`, t.cuts, `${pctTxt(t.cuts, t.answered)} of answered calls`, { hot: true })}
       ${kpi("Low-ring cuts", t.lowring, `${pctTxt(t.lowring, t.reached)} of calls that rang · count only`)}
       ${kpi("Executive Busy", t.exec_busy, `${pctTxt(t.exec_busy, t.calls)} of calls · count only`)}
       ${kpi("Agents flagged High", hot, `of ${rows.length} agents`)}
     </section>
     <section class="card rise"><div>
-      <div class="card-h"><h3>Agents — ${TALK[S.talk]} pick-up cuts</h3><span class="small muted">Click an agent to open their suspicious calls · High / Watch compare each agent with the whole selection</span></div>
+      <div class="card-h"><h3>Agents — pick-up cuts, talk ${TALKP[S.talk]}</h3><span class="small muted">Click an agent to open their suspicious calls · High / Watch compare each agent with the whole selection</span></div>
       <div class="table-wrap tall"><table class="rep agent-table"><thead><tr>
         ${th("caller", "Agent", 1)}${th("team", "Team", 1)}${th("calls", "Calls")}${th("answered", "Answered")}${th("cuts", "Pick-up cuts")}${th("rate", "% of answered")}
         ${th("lowring", "Low-ring cuts")}${th("lrate", "% of rang")}${th("exec_busy", "Exec Busy")}${th("talk_sec", "Talk time")}${th("repeat_numbers", "Numbers cut 2+")}<th class="l">Read</th>
@@ -129,7 +133,7 @@ async function pageReport(a) {
         <td class="num">${pctTxt(t.cuts, t.answered)}</td><td class="num">${num(t.lowring)}</td><td class="num">${pctTxt(t.lowring, t.reached)}</td><td class="num">${num(t.exec_busy)}</td>
         <td class="num">${hm(t.talk_sec)}</td><td class="num">${num(t.repeat_numbers)}</td><td></td></tr>
       </tbody></table></div>
-      <p class="note">Pick-up cut: the customer answered and the agent ended the call within ${TALK[S.talk].replace("≤ ", "")} of talk (MCube "Disconnected By: Agent", Acefone "disconnected by caller").
+      <p class="note">Pick-up cut: the customer answered and the agent ended the call after ${TALKP[S.talk]} of talk (MCube "Disconnected By: Agent", Acefone "disconnected by caller").
         Low-ring cut: the agent ended it while the customer's phone had rung 10 s or less. Executive Busy (MCube): the dialer rang the agent and the agent did not take it. Ozonetel is not included.</p>
     </div></section>`;
 }
@@ -154,7 +158,7 @@ async function pageDaily(a) {
         const p = pct(r.cuts, r.answered); return `<td class="c" style="${color(p)}" data-c="${esc(c)}" data-d="${d}" title="${esc(c)} · ${short(d)}: ${num(r.cuts)} of ${num(r.answered)} answered calls cut">${Math.round(p)}%</td>`; }).join("")}
       <td class="c" style="${color(pct(o.tot.c, o.tot.a))}" data-c="${esc(c)}" title="${num(o.tot.c)} of ${num(o.tot.a)}">${Math.round(pct(o.tot.c, o.tot.a))}%</td></tr>`).join("")}
     </tbody></table></div>
-    <p class="note">Only the agent-ended pick-ups with talk ${TALK[S.talk]} are counted; change the talk-time limit above to see the same grid for 10 s, 20 s, 1 min or 3 min.</p>
+    <p class="note">Only the agent-ended pick-ups with talk ${TALKP[S.talk]} are counted; change the talk-time band above to see the same grid for another band.</p>
   </div></section>`;
 }
 
@@ -169,7 +173,7 @@ async function pageCalls(a, seq, append = false) {
       <label class="toggle"><input type="checkbox" id="l-rep" ${L.repeat ? "checked" : ""}> Only numbers cut 2+ times by the same agent</label>
       <div class="seg sm" id="l-sort"><button data-s="new" class="${L.sort === "new" ? "on" : ""}">Newest first</button><button data-s="repeat" class="${L.sort === "repeat" ? "on" : ""}">Most repeated</button></div>
       <span class="small muted" style="margin-left:auto">${num(L.total)} calls</span></div>`;
-  if (!L.rows.length) return `<section class="card rise"><div>${tools}<div class="empty">No calls the agent ended within ${TALK[S.talk].replace("≤ ", "")} for these filters.</div></div></section>`;
+  if (!L.rows.length) return `<section class="card rise"><div>${tools}<div class="empty">No calls the agent ended after ${TALKP[S.talk]} of talk for these filters.</div></div></section>`;
   return `<section class="card rise"><div>${tools}
     <div class="table-wrap tall"><table class="calls agent-table"><thead><tr><th class="l">Listen</th><th class="l">Time (IST)</th><th class="l">Agent</th><th class="l">Team</th><th class="l">Phone</th>
       <th>Dialler</th><th>Talk</th><th>Customer ring</th><th title="Calls this agent cut on this number in the period">Cuts on number</th></tr></thead>
@@ -365,10 +369,10 @@ async function start() {
 window.addEventListener("hashchange", () => setPage(location.hash.slice(1)));
 document.querySelectorAll("#presets button").forEach((b) => b.addEventListener("click", () => setPreset(b.dataset.p)));
 ["from", "to"].forEach((id) => $(id).addEventListener("change", () => { markPreset(null); render(); }));
-$("talk").addEventListener("click", (e) => { const t = +e.target.dataset.t; if (!t) return; S.talk = t; markSeg("talk", "t", t); render(); });
+$("talk").addEventListener("click", (e) => { const t = e.target.dataset.t; if (!t) return; S.talk = t; markSeg("talk", "t", t); render(); });
 $("src").addEventListener("click", (e) => { const s = e.target.dataset.s; if (s == null) return; S.src = s; markSeg("src", "s", s); render(); });
-$("clear-filters").addEventListener("click", () => { S.sel.vertical.clear(); S.sel.team.clear(); S.sel.caller.clear(); S.src = ""; S.talk = 5; S.list.number = ""; S.list.repeat = false; S.all.number = ""; S.all.talk = ""; S.all.ended = "";
-  markSeg("talk", "t", 5); markSeg("src", "s", ""); buildOptions(); setPreset("month"); });
+$("clear-filters").addEventListener("click", () => { S.sel.vertical.clear(); S.sel.team.clear(); S.sel.caller.clear(); S.src = ""; S.talk = "0-5"; S.list.number = ""; S.list.repeat = false; S.all.number = ""; S.all.talk = ""; S.all.ended = "";
+  markSeg("talk", "t", "0-5"); markSeg("src", "s", ""); buildOptions(); setPreset("month"); });
 $("theme").addEventListener("click", () => { const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
   document.documentElement.dataset.theme = next; try { localStorage.setItem("ca-theme", next); } catch (_) {} themeButton(); if (!$("app").hidden) render(); });
 $("signout").addEventListener("click", async () => { stopAudio(); await sb.auth.signOut({ scope: "local" }); location.replace(PORTAL + "?signout=1"); });
