@@ -28,6 +28,9 @@ manual calls and LSQ stage changes. Rules: [docs/definitions.md](docs/definition
   All Call Recordings: `call_rec` (every answered call with a recording link, talk time, who ended it; joined to `calls` by id;
   60 days, only 30 if the database passes 450 MB), RPC `all_list`. Suspicious talk filter = bands (Amit, 26 Nov 2026):
   Any length (<= 3 min), <= 5 s, 5-10 s, 10-20 s, 20 s-1 min, 1-3 min (`p_lo` exclusive, `p_max` inclusive; migration `20261126_talk_bands.sql`). No "Related" links between Calling and Suspicious.
+  Recording links are stored short (Amit, 27 Nov 2026: room for 60 days): the common start of every link is kept once in `rec_fmt`
+  (filled from the links themselves, never in the repo), triggers on `call_rec` / `sus_calls` shorten each link only when `_rec_url()`
+  rebuilds the same text, and `all_list` / `sus_list` rebuild links only for the rows a page shows (migration `20261127_short_recording_links.sql`).
 
 ## Rules
 - Update button (Amit, 25 Nov 2026): only Calling admins (`portal.can_admin('calling')`; button shown via `ca_can_update`); `request_refresh` refuses while a refresh is running ('already_running') and within an hour
