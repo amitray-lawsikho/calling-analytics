@@ -1,0 +1,39 @@
+name: Suspicious calls backfill (60 days, resumable)
+
+# One-time load of the last 60 days of MCube + Acefone disconnect / talk / ring / recording data into the sus_* tables.
+# Same concurrency group as the Calling refresh, so the two never run together. Run again if it stops on the time budget.
+on:
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: "Time budget in hours (stops cleanly, the next run continues)"
+        default: "5"
+      restart:
+        description: "Start again from the oldest day"
+        default: "false"
+
+concurrency:
+  group: calling-refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+      - run: python -m etl.sus_backfill --hours "${{ inputs.hours }}" --restart "${{ inputs.restart }}"
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ACEFONE_API_KEY: ${{ secrets.ACEFONE_API_KEY }}
+          ACEFONE_ACCOUNT_ID: ${{ secrets.ACEFONE_ACCOUNT_ID }}
+          MCUBE_TOKEN: ${{ secrets.MCUBE_TOKEN }}

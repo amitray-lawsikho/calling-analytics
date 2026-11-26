@@ -175,6 +175,13 @@ def main(argv: list[str] | None = None) -> int:
         detail["stage_day_rows"] = store.rpc("ca_rebuild_stage_day", {"p_from": keep_from.isoformat()})
         detail["day_unique_rows"] = store.rpc("ca_rebuild_day_unique", {"p_from": min(days).isoformat()})
         detail["trimmed"] = trimmed
+        # 5. Suspicious Call Analysis: its own tables; a failure here leaves the Calling data as it is
+        try:
+            from etl import suspicious as SUS
+            detail["suspicious"] = SUS.ingest(store, calls_from)
+        except Exception as e:
+            detail["suspicious"] = {"error": f"{type(e).__name__}: {e}"[:300]}
+            log(f"::warning::Suspicious calls not updated: {e}")
         if errors:
             detail["warnings"] = errors
         store.insert("refresh_log", [{"status": "ok", "detail": detail}])

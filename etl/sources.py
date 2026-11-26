@@ -11,6 +11,7 @@ import pandas as pd
 import requests
 
 from etl import config as C
+from etl import suspicious as SUS
 from etl.rules import IST, UTC, STAGE_DEDUP, acefone_row, clean_phone, hid, mcube_row, ozonetel_direction, ozonetel_row, ozonetel_status
 
 
@@ -46,9 +47,9 @@ def ozonetel_agents() -> set[str]:
 
 # ---------------------------------------------------------------- Acefone (2-hour chunks, 500 per page)
 
-def fetch_acefone(since_ist: datetime, ampm: str, log) -> list[dict]:
+def fetch_acefone(since_ist: datetime, ampm: str, log, until: datetime | None = None) -> list[dict]:
     headers = {"Authorization": f"Bearer {os.environ['ACEFONE_API_KEY']}", "accountid": os.environ["ACEFONE_ACCOUNT_ID"]}
-    until = datetime.now(IST) - timedelta(minutes=C.LAG_MIN)
+    until = until or datetime.now(IST) - timedelta(minutes=C.LAG_MIN)
     rows, seen = [], set()
     start = since_ist
     while start < until:
@@ -80,6 +81,7 @@ def fetch_acefone(since_ist: datetime, ampm: str, log) -> list[dict]:
                 if cid in seen:
                     continue
                 seen.add(cid)
+                SUS.keep("A", call)
                 r = acefone_row(call, ampm)
                 if r:
                     rows.append(r)
@@ -92,8 +94,8 @@ def fetch_acefone(since_ist: datetime, ampm: str, log) -> list[dict]:
 
 # ---------------------------------------------------------------- MCube (21 s between pages: API limit)
 
-def fetch_mcube(since_ist: datetime, ampm: str, log) -> list[dict]:
-    until = datetime.now(IST) - timedelta(minutes=C.LAG_MIN)
+def fetch_mcube(since_ist: datetime, ampm: str, log, until: datetime | None = None) -> list[dict]:
+    until = until or datetime.now(IST) - timedelta(minutes=C.LAG_MIN)
     if since_ist >= until:
         return []
     rows, seen, page = [], set(), 1
@@ -124,6 +126,7 @@ def fetch_mcube(since_ist: datetime, ampm: str, log) -> list[dict]:
             break
         for r in new:
             seen.add(str(r.get("callid")))
+            SUS.keep("M", r)
             x = mcube_row(r, ampm)
             if x:
                 rows.append(x)

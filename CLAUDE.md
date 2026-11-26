@@ -17,6 +17,14 @@ manual calls and LSQ stage changes. Rules: [docs/definitions.md](docs/definition
   count(*) read the whole calls table every run, and the pipeline's retries stacked copies of it). No full-table reads of `calls` in a refresh.
   Change schema with a migration, keep RLS on. Free plan: keep the database under 500 MB.
 - `legacy/`: the old BigQuery pipelines, kept for reference only.
+- Suspicious Call Analysis (Amit, 26 Nov 2026): `etl/suspicious.py` keeps who ended each MCube / Acefone call, talk time, customer
+  ring time and the recording link from the raw records the refresh already reads (`SUS.keep` in `etl/sources.py`), then step 5 of
+  the refresh calls `sus_ingest` in its own try/except, so it can never stop the Calling data. Tables `sus_day` (caller x day x
+  dialler counts), `sus_calls` (answered calls the agent ended with talk <= 180 s, with recording), `sus_seen` (ids already
+  counted, 3 days), `sus_state`; 60 days like `calls`. Schema: `supabase/migrations/20261126_suspicious_calls.sql`.
+  Access `sus_allowed()` = Calling admins or `suspicious` in `portal.access`. One-time history: workflow
+  `suspicious_backfill.yml` (`etl/sus_backfill.py`, resumable, same concurrency group as the refresh). Page: `web/suspicious/`.
+  Ozonetel is not included (Amit, 26 Nov 2026).
 
 ## Rules
 - Update button (Amit, 25 Nov 2026): only Calling admins (`portal.can_admin('calling')`; button shown via `ca_can_update`); `request_refresh` refuses while a refresh is running ('already_running') and within an hour
