@@ -11,6 +11,7 @@ Rules (field check, 26 Nov 2026):
           Recording = recording_url. Same caller and id as the Calling table (acefone_row).
   Pick-up cut  = answered, agent ended it, talk <= the chosen limit (5 / 10 / 20 / 60 / 180 s).
   Low-ring cut = not answered, agent ended it, customer ring <= 10 s.
+All Call Recordings (Amit, 26 Nov 2026): every answered call keeps its recording link, talk time and who ended it (`call_rec`).
 """
 from __future__ import annotations
 
@@ -75,8 +76,10 @@ def keep(src: str, raw: dict) -> None:
     try:
         row = mcube(raw) if src == "M" else acefone(raw)
         if row and row["caller"]:
-            if not (row["k"] == "A" and row["agent"] and row["talk"] <= KEEP_TALK):
+            if row["k"] != "A":
                 row = {k: v for k, v in row.items() if k not in ("num", "dt", "rec", "ref")}   # counts only
+            elif not (row["agent"] and row["talk"] <= KEEP_TALK):
+                row = {k: v for k, v in row.items() if k not in ("num", "dt", "ref")}          # answered: recording for All Call Recordings
             ROWS.append(row)
     except Exception:
         pass

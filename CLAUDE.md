@@ -24,7 +24,9 @@ manual calls and LSQ stage changes. Rules: [docs/definitions.md](docs/definition
   counted, 3 days), `sus_state`; 60 days like `calls`. Schema: `supabase/migrations/20261126_suspicious_calls.sql`.
   Access `sus_allowed()` = `suspicious` in `portal.access` (its own dashboard in the portal; day one every Calling admin got it as admin). One-time history: workflow
   `suspicious_backfill.yml` (`etl/sus_backfill.py`, resumable, own concurrency group, restarts itself until the last day is in). Page: `web/suspicious/`.
-  Ozonetel is not included (Amit, 26 Nov 2026).
+  Ozonetel is not included (Amit, 26 Nov 2026). Two sections (Amit, 26 Nov 2026): Suspicious calls (report, heatmap, list) and
+  All Call Recordings: `call_rec` (every answered call with a recording link, talk time, who ended it; joined to `calls` by id;
+  60 days, only 30 if the database passes 450 MB), RPC `all_list`. No "Related" links between Calling and Suspicious.
 
 ## Rules
 - Update button (Amit, 25 Nov 2026): only Calling admins (`portal.can_admin('calling')`; button shown via `ca_can_update`); `request_refresh` refuses while a refresh is running ('already_running') and within an hour

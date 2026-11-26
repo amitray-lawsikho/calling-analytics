@@ -4,7 +4,8 @@
 const sb = supabase.createClient(CA_CONFIG.supabaseUrl, CA_CONFIG.supabaseKey);
 const $ = (id) => document.getElementById(id);
 const S = { meta: null, page: "report", talk: 5, src: "", preset: "month", sel: { vertical: new Set(), team: new Set(), caller: new Set() },
-  sort: { k: "rate", dir: -1 }, list: { rows: [], total: 0, offset: 0, number: "", repeat: false, sort: "new" }, seq: 0, playing: null };
+  sort: { k: "rate", dir: -1 }, list: { rows: [], total: 0, offset: 0, number: "", repeat: false, sort: "new" },
+  all: { rows: [], total: 0, offset: 0, number: "", talk: "", ended: "" }, seq: 0, playing: null };
 
 /* ---------- format ---------- */
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -75,13 +76,13 @@ function flagOf(r, team) {
 const bar = (a, b, lvl) => `<span class="pct ${lvl === 2 ? "hot" : lvl === 1 ? "watch" : ""}"><span>${pctTxt(a, b)}</span><span class="track"><span class="fill bar-in" style="width:${Math.min(100, pct(a, b)).toFixed(1)}%"></span></span></span>`;
 
 /* ---------- pages ---------- */
-const PAGES = { report: ["Agent Report", pageReport], daily: ["Daily Heatmap", pageDaily], calls: ["Listen to Calls", pageCalls] };
+const PAGES = { report: ["Agent Report", pageReport], daily: ["Daily Heatmap", pageDaily], calls: ["Suspicious Calls", pageCalls], all: ["All Call Recordings", pageAll] };
 function busy(on) { $("busy").hidden = !on; $("content").classList.toggle("loading", on); }
 async function render() {
   const seq = ++S.seq, [title, fn] = PAGES[S.page];
   $("page-title").textContent = title;
   const a = args();
-  $("page-sub").innerHTML = `<b>${nice(a.p_from)}</b> – <b>${nice(a.p_to)}</b> · agent ended the call, talk <b>${TALK[S.talk]}</b>${S.src ? ` · <b>${SRC[S.src]}</b>` : " · MCube + Acefone"}`;
+  $("page-sub").innerHTML = `<b>${nice(a.p_from)}</b> – <b>${nice(a.p_to)}</b> · ${S.page === "all" ? "every answered call with a recording" : `agent ended the call, talk <b>${TALK[S.talk]}</b>`}${S.src ? ` · <b>${SRC[S.src]}</b>` : " · MCube + Acefone"}`;
   busy(true);
   try { const html = await fn(a, seq); if (seq !== S.seq) return; if (html != null) { $("content").innerHTML = html; afterRender(); } }
   catch (e) { if (seq === S.seq) $("content").innerHTML = `<div class="card empty">Could not load: ${esc(e.message || e)}</div>`; }
@@ -114,7 +115,7 @@ async function pageReport(a) {
       ${kpi("Agents flagged High", hot, `of ${rows.length} agents`)}
     </section>
     <section class="card rise"><div>
-      <div class="card-h"><h3>Agents — ${TALK[S.talk]} pick-up cuts</h3><span class="small muted">Click an agent to listen to their calls · High / Watch compare each agent with the whole selection</span></div>
+      <div class="card-h"><h3>Agents — ${TALK[S.talk]} pick-up cuts</h3><span class="small muted">Click an agent to open their suspicious calls · High / Watch compare each agent with the whole selection</span></div>
       <div class="table-wrap tall"><table class="rep agent-table"><thead><tr>
         ${th("caller", "Agent", 1)}${th("team", "Team", 1)}${th("calls", "Calls")}${th("answered", "Answered")}${th("cuts", "Pick-up cuts")}${th("rate", "% of answered")}
         ${th("lowring", "Low-ring cuts")}${th("lrate", "% of rang")}${th("exec_busy", "Exec Busy")}${th("talk_sec", "Talk time")}${th("repeat_numbers", "Numbers cut 2+")}<th class="l">Read</th>
@@ -176,6 +177,35 @@ async function pageCalls(a, seq, append = false) {
     ${L.rows.length < L.total ? `<div class="more"><button class="btn sm" id="l-more">Load 50 more</button><span class="small muted">${num(L.rows.length)} of ${num(L.total)}</span></div>` : ""}
   </div></section>`;
 }
+/* All Call Recordings (Amit, 26 Nov 2026): every answered call that has a recording, any length, filter by talk time and who ended it */
+const TALKR = { "": ["Any length", 0, null], s: ["Under 1 min", 0, 60], m: ["1 – 3 min", 60, 180], l: ["3 – 10 min", 180, 600], xl: ["10 min +", 600, null] };
+async function pageAll(a, seq, append = false) {
+  const L = S.all;
+  if (!append) { L.offset = 0; L.rows = []; stopAudio(); }
+  const [, mn, mx] = TALKR[L.talk];
+  const res = await rpc("all_list", { p_from: a.p_from, p_to: a.p_to, p_teams: a.p_teams, p_verticals: a.p_verticals, p_callers: a.p_callers, p_srcs: a.p_srcs,
+    p_number: L.number || null, p_min: mn, p_max: mx, p_ended: L.ended || null, p_offset: L.offset, p_limit: 50 });
+  if (seq !== S.seq) return null;
+  L.rows = L.rows.concat(res.rows); L.total = res.total; L.offset = L.rows.length;
+  const tools = `<div class="toolbar">
+      <input type="search" id="a-num" placeholder="Search a phone number" value="${esc(L.number)}">
+      <div class="seg sm" id="a-talk">${Object.entries(TALKR).map(([k, [t]]) => `<button data-k="${k}" class="${L.talk === k ? "on" : ""}">${t}</button>`).join("")}</div>
+      <div class="seg sm" id="a-end">${[["", "Anyone ended"], ["agent", "Agent ended"], ["customer", "Customer ended"]].map(([k, t]) => `<button data-k="${k}" class="${L.ended === k ? "on" : ""}">${t}</button>`).join("")}</div>
+      <span class="small muted" style="margin-left:auto">${L.total > 10000 ? "10,000+" : num(L.total)} calls</span></div>`;
+  if (!L.rows.length) return `<section class="card rise"><div>${tools}<div class="empty">No recorded calls for these filters.</div></div></section>`;
+  return `<section class="card rise"><div>${tools}
+    <div class="table-wrap tall"><table class="calls agent-table"><thead><tr><th class="l">Listen</th><th class="l">Time (IST)</th><th class="l">Agent</th><th class="l">Team</th><th class="l">Phone</th>
+      <th>Dialler</th><th>Talk</th><th class="l">Ended by</th></tr></thead>
+    <tbody id="l-body">${L.rows.map(allRow).join("")}</tbody></table></div>
+    ${L.rows.length < L.total ? `<div class="more"><button class="btn sm" id="l-more">Load 50 more</button><span class="small muted">${num(L.rows.length)} of ${L.total > 10000 ? "10,000+" : num(L.total)}</span></div>` : ""}
+  </div></section>`;
+}
+const mins = (s) => (s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`);
+function allRow(r) {
+  return `<tr data-id="${r.id}"><td class="l"><button class="play" data-id="${r.id}" aria-label="Play recording">${PLAY}</button></td><td class="l nw">${when(r.call_datetime)}</td>
+    <td class="l">${esc(r.caller)}</td><td class="l">${esc(r.team || "—")}</td><td class="l nw">${esc(r.client_number || "")}</td>
+    <td><span class="src-tag">${SRC[r.src] || r.src}</span></td><td class="num">${mins(r.talk_sec)}</td><td class="l">${r.agent_end ? "Agent" : "Customer"}</td></tr>`;
+}
 const PLAY = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`, PAUSE = `<svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>`;
 function callRow(r) {
   return `<tr data-id="${r.id}"><td class="l"><button class="play" data-id="${r.id}" ${r.recording ? "" : "disabled title=\"No recording for this call\""} aria-label="Play recording">${PLAY}</button></td><td class="l nw">${when(r.call_datetime)}</td><td class="l">${esc(r.caller)}</td><td class="l">${esc(r.team || "—")}</td>
@@ -193,16 +223,16 @@ const audio = $("audio");
 function stopAudio() { audio.pause(); audio.removeAttribute("src"); audio.load(); document.querySelectorAll("tr.player-row").forEach((x) => x.remove());
   document.querySelectorAll("tr.playing").forEach((x) => x.classList.remove("playing", "paused")); document.querySelectorAll(".play").forEach((b) => (b.innerHTML = PLAY)); S.playing = null; }
 function openPlayer(id) {
-  const r = S.list.rows.find((x) => x.id === id), tr = document.querySelector(`tr[data-id="${id}"]`);
+  const r = (S.page === "all" ? S.all : S.list).rows.find((x) => x.id === id), tr = document.querySelector(`tr[data-id="${id}"]`);
   if (!r || !tr) return;
   if (S.playing === id) { audio.paused ? audio.play().catch(() => {}) : audio.pause(); return; }
   stopAudio(); S.playing = id; tr.classList.add("playing");
   const row = document.createElement("tr"); row.className = "player-row";
-  row.innerHTML = `<td colspan="9"><div class="player"><button class="play pp" aria-label="Play or pause">${PAUSE}</button>
+  row.innerHTML = `<td colspan="${tr.children.length}"><div class="player"><button class="play pp" aria-label="Play or pause">${PAUSE}</button>
     <span class="time"><span class="cur">0:00</span> / <span class="dur">–</span></span>
     <div class="seek" role="slider" aria-label="Seek" tabindex="0"><span class="buf"></span><span class="done"></span><span class="knob"></span></div>
     <div class="speed">${[1, 1.5, 2].map((s) => `<button data-r="${s}" class="${s === 1 ? "on" : ""}">${s}×</button>`).join("")}</div>
-    <span class="meta">${esc(r.caller)} · talk ${r.talk_sec}s<span class="mini-eq"><i></i><i></i><i></i></span></span></div></td>`;
+    <span class="meta">${esc(r.caller)} · talk ${mins(r.talk_sec)}<span class="mini-eq"><i></i><i></i><i></i></span></span></div></td>`;
   tr.after(row);
   const P = row.querySelector(".player"), cur = P.querySelector(".cur"), dur = P.querySelector(".dur"), done = P.querySelector(".done"), knob = P.querySelector(".knob"), buf = P.querySelector(".buf"), seek = P.querySelector(".seek");
   const sync = () => { const d = audio.duration || 0, p = d ? (audio.currentTime / d) * 100 : 0; done.style.width = knob.style.left = p + "%"; cur.textContent = mmss(audio.currentTime);
@@ -228,7 +258,10 @@ function wire() {
   const rp = $("l-rep"); if (rp) rp.onchange = () => { S.list.repeat = rp.checked; render(); };
   const so = $("l-sort"); if (so) so.onclick = (e) => { const s = e.target.dataset.s; if (!s) return; S.list.sort = s; render(); };
   const more = $("l-more"); if (more) more.onclick = async () => { more.disabled = true; const seq = S.seq;
-    try { const html = await pageCalls(args(), seq, true); if (html != null && seq === S.seq) { $("content").innerHTML = html; wire(); } } finally { more.disabled = false; } };
+    try { const html = await (S.page === "all" ? pageAll : pageCalls)(args(), seq, true); if (html != null && seq === S.seq) { $("content").innerHTML = html; wire(); } } finally { more.disabled = false; } };
+  const an = $("a-num"); if (an) { let t; an.oninput = () => { clearTimeout(t); t = setTimeout(() => { S.all.number = an.value.replace(/\D/g, ""); render(); }, 400); }; }
+  const at = $("a-talk"); if (at) at.onclick = (e) => { const k = e.target.dataset.k; if (k == null) return; S.all.talk = k; render(); };
+  const ae = $("a-end"); if (ae) ae.onclick = (e) => { const k = e.target.dataset.k; if (k == null) return; S.all.ended = k; render(); };
   const body = $("l-body"); if (body) body.onclick = (e) => { const b = e.target.closest("button.play[data-id]"); if (b && !b.disabled) openPlayer(b.dataset.id); };
 }
 
@@ -279,6 +312,7 @@ function setPreset(p) { const [f, t] = preset(p); $("from").value = f; $("to").v
 function markSeg(id, key, v) { document.querySelectorAll(`#${id} button`).forEach((b) => b.classList.toggle("on", b.dataset[key] === String(v))); }
 function setPage(p) {
   S.page = PAGES[p] ? p : "report";
+  $("talk-lbl").hidden = S.page === "all";
   document.querySelectorAll(".side nav a[data-page]").forEach((a) => a.classList.toggle("on", a.dataset.page === S.page));
   $("side").classList.remove("open"); render();
 }
@@ -333,7 +367,7 @@ document.querySelectorAll("#presets button").forEach((b) => b.addEventListener("
 ["from", "to"].forEach((id) => $(id).addEventListener("change", () => { markPreset(null); render(); }));
 $("talk").addEventListener("click", (e) => { const t = +e.target.dataset.t; if (!t) return; S.talk = t; markSeg("talk", "t", t); render(); });
 $("src").addEventListener("click", (e) => { const s = e.target.dataset.s; if (s == null) return; S.src = s; markSeg("src", "s", s); render(); });
-$("clear-filters").addEventListener("click", () => { S.sel.vertical.clear(); S.sel.team.clear(); S.sel.caller.clear(); S.src = ""; S.talk = 5; S.list.number = ""; S.list.repeat = false;
+$("clear-filters").addEventListener("click", () => { S.sel.vertical.clear(); S.sel.team.clear(); S.sel.caller.clear(); S.src = ""; S.talk = 5; S.list.number = ""; S.list.repeat = false; S.all.number = ""; S.all.talk = ""; S.all.ended = "";
   markSeg("talk", "t", 5); markSeg("src", "s", ""); buildOptions(); setPreset("month"); });
 $("theme").addEventListener("click", () => { const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
   document.documentElement.dataset.theme = next; try { localStorage.setItem("ca-theme", next); } catch (_) {} themeButton(); if (!$("app").hidden) render(); });
