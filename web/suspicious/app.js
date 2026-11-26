@@ -16,7 +16,7 @@ const pctTxt = (a, b) => (b > 0 ? `${Math.round(pct(a, b))}%` : "–");
 const hm = (sec) => { const t = Math.round((+sec || 0) / 60), h = Math.floor(t / 60), m = t % 60; return h ? `${h}h ${m}m` : `${m}m`; };
 const mmss = (s) => { s = Math.max(0, Math.floor(+s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 // talk-time bands after pick-up, agent ended the call (Amit, 26 Nov 2026): key "lo-max", lo exclusive (0 = from zero), max inclusive
-const TALK = { "0-180": "No length", "0-5": "≤ 5 s", "5-10": "5 – 10 s", "10-20": "10 – 20 s", "20-60": "20 s – 1 min", "60-180": "1 – 3 min" };
+const TALK = { "0-180": "Any length", "0-5": "≤ 5 s", "5-10": "5 – 10 s", "10-20": "10 – 20 s", "20-60": "20 s – 1 min", "60-180": "1 – 3 min" };
 const TALKP = { "0-180": "3 min or less", "0-5": "5 s or less", "5-10": "more than 5 s and up to 10 s", "10-20": "more than 10 s and up to 20 s",
   "20-60": "more than 20 s and up to 1 min", "60-180": "more than 1 min and up to 3 min" };
 const band = () => S.talk.split("-").map(Number);
@@ -86,7 +86,7 @@ async function render() {
   const seq = ++S.seq, [title, fn] = PAGES[S.page];
   $("page-title").textContent = title;
   const a = args();
-  $("page-sub").innerHTML = `<b>${nice(a.p_from)}</b> – <b>${nice(a.p_to)}</b> · ${S.page === "all" ? "every answered call with a recording" : `agent ended the call, talk <b>${TALK[S.talk] === "No length" ? "any length up to 3 min" : TALK[S.talk]}</b>`}${S.src ? ` · <b>${SRC[S.src]}</b>` : " · MCube + Acefone"}`;
+  $("page-sub").innerHTML = `<b>${nice(a.p_from)}</b> – <b>${nice(a.p_to)}</b> · ${S.page === "all" ? "every answered call with a recording" : `agent ended the call, talk <b>${S.talk === "0-180" ? "any length up to 3 min" : TALK[S.talk]}</b>`}${S.src ? ` · <b>${SRC[S.src]}</b>` : " · MCube + Acefone"}`;
   busy(true);
   try { const html = await fn(a, seq); if (seq !== S.seq) return; if (html != null) { $("content").innerHTML = html; afterRender(); } }
   catch (e) { if (seq === S.seq) $("content").innerHTML = `<div class="card empty">Could not load: ${esc(e.message || e)}</div>`; }

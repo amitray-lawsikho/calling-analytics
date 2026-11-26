@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css">
-  <link rel="stylesheet" href="sus.css?v=5">
+  <link rel="stylesheet" href="sus.css?v=6">
   <script>try { const t = localStorage.getItem("ca-theme"); if (t) document.documentElement.dataset.theme = t; } catch (_) {}</script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
   <script src="../config.js"></script>
@@ -99,7 +99,7 @@
         </div>
         <div class="filter-row filter-2">
           <div class="lbl" id="talk-lbl"><span>Talk time after pick-up, agent ended the call</span>
-            <div class="seg talk" id="talk"><button data-t="0-180">No length</button><button data-t="0-5">≤ 5 s</button><button data-t="5-10">5 – 10 s</button><button data-t="10-20">10 – 20 s</button><button data-t="20-60">20 s – 1 min</button><button data-t="60-180">1 – 3 min</button></div></div>
+            <div class="seg talk" id="talk"><button data-t="0-180">Any length</button><button data-t="0-5">≤ 5 s</button><button data-t="5-10">5 – 10 s</button><button data-t="10-20">10 – 20 s</button><button data-t="20-60">20 s – 1 min</button><button data-t="60-180">1 – 3 min</button></div></div>
           <div class="lbl"><span>Dialler</span>
             <div class="seg" id="src"><button data-s="">All</button><button data-s="M">MCube</button><button data-s="A">Acefone</button></div></div>
         </div>
@@ -110,6 +110,6 @@
     </main>
   </div>
   <audio id="audio" preload="none"></audio>
-  <script src="app.js?v=5"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>
