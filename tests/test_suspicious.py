@@ -71,3 +71,13 @@ def test_ingest_batches_and_trims():
     s = FakeStore()
     out = SUS.ingest(s, date(2026, 9, 28), batch=2)
     assert out["read"] == 5 and out["new"] == 5 and [c[0] for c in s.calls] == ["sus_ingest"] * 3 + ["sus_trim"]
+
+
+def test_excel_download_has_recording_link():
+    """Suspicious Calls Excel download (Amit, 27 Nov 2026): every row of the list, with the recording link."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "web/suspicious/app.js").read_text()
+    sql = (root / "supabase/migrations/20261127_suspicious_export.sql").read_text()
+    assert 'rpc("sus_export"' in js and '"Recording link"' in js and "c.l = { Target: r.recording" in js
+    assert "_rec_url(recording) recording" in sql and "sus_allowed()" in sql

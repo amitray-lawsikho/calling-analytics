@@ -121,3 +121,7 @@ tr.player-row td { padding: 0 12px 12px; background: var(--gold-soft); text-alig
 @media (prefers-reduced-motion: reduce) {
   .rise > *, .bar-in, .player, .boot-mark .ring, .eq i, .mini-eq i { animation: none !important; opacity: 1; transform: none; }
 }
+
+/* Excel download in the Suspicious Calls toolbar */
+.btn.dl { display: inline-flex; align-items: center; gap: 6px; }
+.btn.dl:disabled { opacity: .7; cursor: progress; }

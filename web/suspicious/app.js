@@ -172,7 +172,8 @@ async function pageCalls(a, seq, append = false) {
       <input type="search" id="l-num" placeholder="Search a phone number" value="${esc(L.number)}">
       <label class="toggle"><input type="checkbox" id="l-rep" ${L.repeat ? "checked" : ""}> Only numbers cut 2+ times by the same agent</label>
       <div class="seg sm" id="l-sort"><button data-s="new" class="${L.sort === "new" ? "on" : ""}">Newest first</button><button data-s="repeat" class="${L.sort === "repeat" ? "on" : ""}">Most repeated</button></div>
-      <span class="small muted" style="margin-left:auto">${num(L.total)} calls</span></div>`;
+      <span class="small muted" style="margin-left:auto">${num(L.total)} calls</span>
+      ${L.total ? `<button class="btn sm dl" id="l-xlsx" title="Every call in this list (all pages), with the recording link">${DL} Download Excel</button>` : ""}</div>`;
   if (!L.rows.length) return `<section class="card rise"><div>${tools}<div class="empty">No calls the agent ended after ${TALKP[S.talk]} of talk for these filters.</div></div></section>`;
   return `<section class="card rise"><div>${tools}
     <div class="table-wrap tall"><table class="calls agent-table"><thead><tr><th class="l">Listen</th><th class="l">Time (IST)</th><th class="l">Agent</th><th class="l">Team</th><th class="l">Phone</th>
@@ -181,6 +182,53 @@ async function pageCalls(a, seq, append = false) {
     ${L.rows.length < L.total ? `<div class="more"><button class="btn sm" id="l-more">Load 50 more</button><span class="small muted">${num(L.rows.length)} of ${num(L.total)}</span></div>` : ""}
   </div></section>`;
 }
+/* Excel download of the Suspicious Calls list (Amit, 27 Nov 2026): every row of the current list (all pages, same filters and
+   order) with the recording link; the Excel writer loads only when the button is pressed, so the page stays as fast */
+const DL = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14"/></svg>`;
+function loadXlsx() {
+  if (window.XLSX) return Promise.resolve();
+  const one = (src) => new Promise((ok, no) => { const sc = document.createElement("script"); sc.src = src;
+    sc.onload = ok; sc.onerror = () => { sc.remove(); no(new Error("The Excel writer could not be loaded")); }; document.head.appendChild(sc); });
+  return one("https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js")
+    .catch(() => one("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"));   // same writer, second host
+}
+const IST = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+function istParts(ts) { const o = Object.fromEntries(IST.formatToParts(new Date(ts)).map((x) => [x.type, x.value])); return [`${o.year}-${o.month}-${o.day}`, `${o.hour}:${o.minute}:${o.second}`]; }
+async function downloadCalls(btn) {
+  const L = S.list, a = args(), q = { ...a, p_number: L.number || null, p_repeat: L.repeat, p_sort: L.sort, p_limit: 10000 };
+  const label = btn.innerHTML; btn.disabled = true; btn.textContent = "Preparing…";
+  try {
+    const [, first] = await Promise.all([loadXlsx(), rpc("sus_export", { ...q, p_offset: 0 })]);
+    let rows = first.rows; const total = first.total;
+    while (rows.length < total) {
+      btn.textContent = `Preparing… ${Math.floor((rows.length / total) * 100)}%`;
+      const r = await rpc("sus_export", { ...q, p_offset: rows.length }); if (!r.rows.length) break; rows = rows.concat(r.rows);
+    }
+    const head = ["Date", "Time (IST)", "Agent", "Team", "Vertical", "Phone", "Dialler", "Talk (sec)", "Customer ring (sec)", "Cuts on number", "Dialler call ID", "Recording link"];
+    const aoa = [head, ...rows.map((r) => { const [d, t] = istParts(r.call_datetime);
+      return [d, t, r.caller || "", r.team || "", r.vertical || "", String(r.client_number || ""), SRC[r.src] || r.src, r.talk_sec, r.cring_sec ?? "", r.cuts_on_number, String(r.ref || ""), r.recording || ""]; })];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    rows.forEach((r, i) => { const c = ws[XLSX.utils.encode_cell({ r: i + 1, c: 11 })]; if (r.recording && c) c.l = { Target: r.recording, Tooltip: "Open the recording" }; });
+    ws["!cols"] = [12, 11, 24, 26, 18, 14, 9, 10, 18, 14, 22, 60].map((w) => ({ wch: w }));
+    ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: aoa.length - 1, c: head.length - 1 } }) };
+    const list = (set, all) => (set.size ? [...set].join(", ") : all);
+    const info = XLSX.utils.aoa_to_sheet([["Suspicious Calls"], [],
+      ["Period", `${a.p_from} to ${a.p_to}`],
+      ["Talk after pick-up (agent ended the call)", S.talk === "0-180" ? "Any length up to 3 min" : TALK[S.talk]],
+      ["Dialler", S.src ? SRC[S.src] : "MCube + Acefone"],
+      ["Verticals", list(S.sel.vertical, "All")], ["Teams", list(S.sel.team, "All")], ["Callers", list(S.sel.caller, "All")],
+      ["Phone search", L.number || "—"], ["Only numbers cut 2+ times by the same agent", L.repeat ? "Yes" : "No"],
+      ["Order", L.sort === "repeat" ? "Most repeated" : "Newest first"], ["Calls", rows.length],
+      ["Downloaded (IST)", istParts(Date.now()).join(" ")]]);
+    info["!cols"] = [{ wch: 44 }, { wch: 60 }];
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Suspicious calls"); XLSX.utils.book_append_sheet(wb, info, "Filters");
+    XLSX.writeFile(wb, `Suspicious_Calls_${a.p_from}_to_${a.p_to}.xlsx`, { compression: true });
+    btn.innerHTML = label;
+  } catch (e) {
+    console.error(e); btn.textContent = "Download failed — try again"; setTimeout(() => { btn.innerHTML = label; }, 4000);
+  } finally { btn.disabled = false; }
+}
+
 /* All Call Recordings (Amit, 26 Nov 2026): every answered call that has a recording, any length, filter by talk time and who ended it */
 const TALKR = { "": ["Any length", 0, null], s: ["Under 1 min", 0, 60], m: ["1 – 3 min", 60, 180], l: ["3 – 10 min", 180, 600], xl: ["10 – 20 min", 600, 1200], xxl: ["20 min +", 1200, null] };
 async function pageAll(a, seq, append = false) {
@@ -261,6 +309,7 @@ function wire() {
   const n = $("l-num"); if (n) { let t; n.oninput = () => { clearTimeout(t); t = setTimeout(() => { S.list.number = n.value.replace(/\D/g, ""); render(); }, 400); }; }
   const rp = $("l-rep"); if (rp) rp.onchange = () => { S.list.repeat = rp.checked; render(); };
   const so = $("l-sort"); if (so) so.onclick = (e) => { const s = e.target.dataset.s; if (!s) return; S.list.sort = s; render(); };
+  const xl = $("l-xlsx"); if (xl) xl.onclick = () => downloadCalls(xl);
   const more = $("l-more"); if (more) more.onclick = async () => { more.disabled = true; const seq = S.seq;
     try { const html = await (S.page === "all" ? pageAll : pageCalls)(args(), seq, true); if (html != null && seq === S.seq) { $("content").innerHTML = html; wire(); } } finally { more.disabled = false; } };
   const an = $("a-num"); if (an) { let t; an.oninput = () => { clearTimeout(t); t = setTimeout(() => { S.all.number = an.value.replace(/\D/g, ""); render(); }, 400); }; }
