@@ -34,6 +34,8 @@ manual calls and LSQ stage changes. Rules: [docs/definitions.md](docs/definition
   Suspicious Calls Excel download (Amit, 27 Nov 2026): button at the right of the list toolbar; RPC `sus_export` (same filters and order
   as `sus_list`, 10,000 rows a call, with team, vertical, dialler call ID and the full recording link, clickable); the Excel writer
   (SheetJS from cdn.sheetjs.com, jsdelivr as second host) loads only when the button is pressed. Second sheet lists the filters.
+  Glossary page (`#glossary`, Amit, 27 Nov 2026): the counting and flag rules in words; keep it in step with `flagOf()` and
+  `etl/suspicious.py` when a rule changes. Phone numbers in both call lists have a copy button.
 
 ## Rules
 - Update button (Amit, 25 Nov 2026): only Calling admins (`portal.can_admin('calling')`; button shown via `ca_can_update`); `request_refresh` refuses while a refresh is running ('already_running') and within an hour

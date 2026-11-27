@@ -81,3 +81,15 @@ def test_excel_download_has_recording_link():
     sql = (root / "supabase/migrations/20261127_suspicious_export.sql").read_text()
     assert 'rpc("sus_export"' in js and '"Recording link"' in js and "c.l = { Target: r.recording" in js
     assert "_rec_url(recording) recording" in sql and "sus_allowed()" in sql
+
+
+def test_glossary_page_and_copy_button():
+    """Glossary page and the phone copy button (Amit, 27 Nov 2026)."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "web/suspicious/app.js").read_text()
+    html = (root / "web/suspicious/index.html").read_text()
+    assert 'glossary: ["Glossary", pageGlossary]' in js and 'href="#glossary"' in html
+    assert "LOW_RING = 10" in (root / "etl/suspicious.py").read_text()          # the glossary says 10 s or less
+    assert "pc >= 20 && pc >= tp * 1.8" in js and "lr >= 25 && lr >= tl * 1.8" in js   # the glossary's High rules
+    assert js.count("${phone(r.client_number)}") == 2 and "navigator.clipboard.writeText" in js

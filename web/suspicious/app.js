@@ -80,13 +80,15 @@ function flagOf(r, team) {
 const bar = (a, b, lvl) => `<span class="pct ${lvl === 2 ? "hot" : lvl === 1 ? "watch" : ""}"><span>${pctTxt(a, b)}</span><span class="track"><span class="fill bar-in" style="width:${Math.min(100, pct(a, b)).toFixed(1)}%"></span></span></span>`;
 
 /* ---------- pages ---------- */
-const PAGES = { report: ["Agent Report", pageReport], daily: ["Daily Heatmap", pageDaily], calls: ["Suspicious Calls", pageCalls], all: ["All Call Recordings", pageAll] };
+const PAGES = { report: ["Agent Report", pageReport], daily: ["Daily Heatmap", pageDaily], calls: ["Suspicious Calls", pageCalls], all: ["All Call Recordings", pageAll], glossary: ["Glossary", pageGlossary] };
 function busy(on) { $("busy").hidden = !on; $("content").classList.toggle("loading", on); }
 async function render() {
   const seq = ++S.seq, [title, fn] = PAGES[S.page];
   $("page-title").textContent = title;
   const a = args();
-  $("page-sub").innerHTML = `<b>${nice(a.p_from)}</b> – <b>${nice(a.p_to)}</b> · ${S.page === "all" ? "every answered call with a recording" : `agent ended the call, talk <b>${S.talk === "0-180" ? "any length up to 3 min" : TALK[S.talk]}</b>`}${S.src ? ` · <b>${SRC[S.src]}</b>` : " · MCube + Acefone"}`;
+  $("filters").hidden = S.page === "glossary";
+  if (S.page === "glossary") { $("page-sub").textContent = "How every count, percentage and flag on these pages is worked out"; stopAudio(); }
+  else $("page-sub").innerHTML = `<b>${nice(a.p_from)}</b> – <b>${nice(a.p_to)}</b> · ${S.page === "all" ? "every answered call with a recording" : `agent ended the call, talk <b>${S.talk === "0-180" ? "any length up to 3 min" : TALK[S.talk]}</b>`}${S.src ? ` · <b>${SRC[S.src]}</b>` : " · MCube + Acefone"}`;
   busy(true);
   try { const html = await fn(a, seq); if (seq !== S.seq) return; if (html != null) { $("content").innerHTML = html; afterRender(); } }
   catch (e) { if (seq === S.seq) $("content").innerHTML = `<div class="card empty">Could not load: ${esc(e.message || e)}</div>`; }
@@ -182,6 +184,44 @@ async function pageCalls(a, seq, append = false) {
     ${L.rows.length < L.total ? `<div class="more"><button class="btn sm" id="l-more">Load 50 more</button><span class="small muted">${num(L.rows.length)} of ${num(L.total)}</span></div>` : ""}
   </div></section>`;
 }
+/* Glossary (Amit, 27 Nov 2026): the rules the pages use, kept in step with flagOf() and etl/suspicious.py */
+async function pageGlossary() {
+  const tr = (cells) => `<tr>${cells.map((c, i) => `<td class="l${i === 0 ? " gl-term" : ""}">${c}</td>`).join("")}</tr>`;
+  const table = (head, rows) => `<div class="table-wrap"><table class="gl"><thead><tr>${head.map((h) => `<th class="l">${h}</th>`).join("")}</tr></thead><tbody>${rows.map(tr).join("")}</tbody></table></div>`;
+  return `<section class="card rise gloss"><div>
+    <p class="gl-lead">These are the exact rules every page here uses. Flags compare each agent with everyone in the same selection: the same dates, teams, dialler and talk band.</p>
+    <h3>The three kinds of cut</h3>
+    ${table(["Term", "Counted when", "MCube", "Acefone"], [
+      ["Pick-up cut", "The customer <b>answered</b>, the <b>agent</b> ended the call, and the talk time is inside the band chosen at the top (≤ 5 s, 5 – 10 s and so on)", "Dial status ANSWER, Disconnected By = Agent, talk = answered time", "Status answered, reason = disconnected by caller (the caller is our agent on an outbound call), talk = answered seconds"],
+      ["Low-ring cut", "The customer <b>did not answer</b>, the <b>agent</b> ended the call, and the customer's phone rang for <b>10 s or less</b>", "Dial status BUSY or NOANSWER, Disconnected By = Agent, ring = customer ring start to end", "Not answered, reason = disconnected by caller, ring = call duration"],
+      ["Executive Busy", "The dialler rang the <b>agent</b> and the agent did <b>not take</b> the call, so the customer was never dialled", "Dial status “Executive Busy”", "Not available"]])}
+    <p class="note">Only outbound calls are counted. Ozonetel is not included.</p>
+    <h3>Counts and percentages</h3>
+    ${table(["Term", "Meaning"], [
+      ["Calls dialled", "Every outbound call."],
+      ["Calls that rang", "The calls that reached the customer, whether answered or not. Low-ring % is out of these."],
+      ["Answered", "Calls the customer picked up. Pick-up cut % is out of these."],
+      ["Executive Busy %", "Out of all calls dialled."],
+      ["Numbers cut 2+", "Customer numbers that the same agent pick-up-cut twice or more in the period."],
+      ["Cuts on number", "In the calls list, how many times that agent cut that number in the period."],
+      ["Ended by", "In All Call Recordings: Agent when the agent hung up, Customer otherwise."]])}
+    <h3>Flags: High, Watch, Normal</h3>
+    ${table(["Flag text", "Level", "Rule"], [
+      ["Cuts pick-ups", `<span class="flag hot">High</span>`, "At least 10 answered calls, pick-up cut % ≥ 20%, and at least 1.8 × the selection's %"],
+      ["Cuts pick-ups", `<span class="flag watch">Watch</span>`, "At least 10 answered calls, pick-up cut % ≥ 10%, and at least 1.3 × the selection's %"],
+      ["Cuts before the customer answers", `<span class="flag hot">High</span>`, "At least 20 calls rang, low-ring % ≥ 25%, and at least 1.8 × the selection's %"],
+      ["Frequent low-ring cuts", `<span class="flag watch">Watch</span>`, "At least 20 calls rang, low-ring % ≥ 12%, and at least 1.3 × the selection's %"],
+      ["Ignores dialer calls", `<span class="flag watch">Watch</span>`, "At least 30 calls dialled and Executive Busy ≥ 20% of them (MCube only)"]])}
+    <p class="note">An agent's level is the highest one they hit; the Read column lists every reason that applies. Anyone who hits none is Normal.</p>
+    <h3>Things to keep in mind</h3>
+    <ul class="gl-list">
+      <li><b>Acefone ring time is approximate.</b> Acefone doesn't report the customer's ring time separately, so for unanswered calls the page uses the whole call duration. That makes Acefone low-ring counts a little lower than MCube's.</li>
+      <li><b>Low-ring cuts and Executive Busy are only counts.</b> They don't come with recordings, because no conversation took place.</li>
+      <li><b>Data updates with every Calling Analytics refresh</b>, and 60 days are kept.</li>
+    </ul>
+  </div></section>`;
+}
+
 /* Excel download of the Suspicious Calls list (Amit, 27 Nov 2026): every row of the current list (all pages, same filters and
    order) with the recording link; the Excel writer loads only when the button is pressed, so the page stays as fast */
 const DL = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14"/></svg>`;
@@ -255,13 +295,24 @@ async function pageAll(a, seq, append = false) {
 const mins = (s) => (s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`);
 function allRow(r) {
   return `<tr data-id="${r.id}"><td class="l"><button class="play" data-id="${r.id}" aria-label="Play recording">${PLAY}</button></td><td class="l nw">${when(r.call_datetime)}</td>
-    <td class="l">${esc(r.caller)}</td><td class="l">${esc(r.team || "—")}</td><td class="l nw">${esc(r.client_number || "")}</td>
+    <td class="l">${esc(r.caller)}</td><td class="l">${esc(r.team || "—")}</td><td class="l nw">${phone(r.client_number)}</td>
     <td><span class="src-tag">${SRC[r.src] || r.src}</span></td><td class="num">${mins(r.talk_sec)}</td><td class="l">${r.agent_end ? "Agent" : "Customer"}</td></tr>`;
+}
+/* copy a phone number to the clipboard (Amit, 27 Nov 2026) */
+const COPY = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>`,
+  TICK = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
+function phone(n) { const v = esc(n || ""); return v ? `<span class="ph">${v}<button type="button" class="copy" data-copy="${v}" title="Copy number" aria-label="Copy ${v}">${COPY}</button></span>` : ""; }
+async function copyNumber(b) {
+  const v = b.dataset.copy;
+  try { await navigator.clipboard.writeText(v); }
+  catch (_) { const t = Object.assign(document.createElement("textarea"), { value: v }); t.style.position = "fixed"; t.style.opacity = "0"; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); }
+  b.innerHTML = TICK; b.classList.add("done"); b.title = "Copied";
+  clearTimeout(b._t); b._t = setTimeout(() => { b.innerHTML = COPY; b.classList.remove("done"); b.title = "Copy number"; }, 1400);
 }
 const PLAY = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`, PAUSE = `<svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>`;
 function callRow(r) {
   return `<tr data-id="${r.id}"><td class="l"><button class="play" data-id="${r.id}" ${r.recording ? "" : "disabled title=\"No recording for this call\""} aria-label="Play recording">${PLAY}</button></td><td class="l nw">${when(r.call_datetime)}</td><td class="l">${esc(r.caller)}</td><td class="l">${esc(r.team || "—")}</td>
-    <td class="l nw">${esc(r.client_number || "")}</td><td><span class="src-tag">${SRC[r.src] || r.src}</span></td><td class="num">${r.talk_sec}s</td>
+    <td class="l nw">${phone(r.client_number)}</td><td><span class="src-tag">${SRC[r.src] || r.src}</span></td><td class="num">${r.talk_sec}s</td>
     <td class="num">${r.cring_sec == null ? "–" : r.cring_sec + "s"}</td><td><span class="rep-n ${r.cuts_on_number >= 2 ? "many" : ""}">${r.cuts_on_number}</span></td></tr>`;
 }
 
@@ -315,7 +366,7 @@ function wire() {
   const an = $("a-num"); if (an) { let t; an.oninput = () => { clearTimeout(t); t = setTimeout(() => { S.all.number = an.value.replace(/\D/g, ""); render(); }, 400); }; }
   const at = $("a-talk"); if (at) at.onclick = (e) => { const k = e.target.dataset.k; if (k == null) return; S.all.talk = k; render(); };
   const ae = $("a-end"); if (ae) ae.onclick = (e) => { const k = e.target.dataset.k; if (k == null) return; S.all.ended = k; render(); };
-  const body = $("l-body"); if (body) body.onclick = (e) => { const b = e.target.closest("button.play[data-id]"); if (b && !b.disabled) openPlayer(b.dataset.id); };
+  const body = $("l-body"); if (body) body.onclick = (e) => { const c = e.target.closest("button.copy"); if (c) { copyNumber(c); return; } const b = e.target.closest("button.play[data-id]"); if (b && !b.disabled) openPlayer(b.dataset.id); };
 }
 
 /* ---------- multi-select filters (same control as Calling Analytics) ---------- */
