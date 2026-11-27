@@ -91,7 +91,11 @@ async function render() {
   else $("page-sub").innerHTML = `<b>${nice(a.p_from)}</b> – <b>${nice(a.p_to)}</b> · ${S.page === "all" ? "every answered call with a recording" : `agent ended the call, talk <b>${S.talk === "0-180" ? "any length up to 3 min" : TALK[S.talk]}</b>`}${S.src ? ` · <b>${SRC[S.src]}</b>` : " · MCube + Acefone"}`;
   busy(true);
   try { const html = await fn(a, seq); if (seq !== S.seq) return; if (html != null) { $("content").innerHTML = html; afterRender(); } }
-  catch (e) { if (seq === S.seq) $("content").innerHTML = `<div class="card empty">Could not load: ${esc(e.message || e)}</div>`; }
+  catch (e) {
+    if (seq !== S.seq) return;
+    const slow = /timeout|canceling statement/i.test(String(e.message || e));
+    $("content").innerHTML = `<div class="card empty">${slow ? "This search took too long. Try a shorter date range or add a filter, then search again." : `Could not load: ${esc(e.message || e)}`}</div>`;
+  }
   finally { if (seq === S.seq) busy(false); }
 }
 function afterRender() { countUp($("content")); wire(); }

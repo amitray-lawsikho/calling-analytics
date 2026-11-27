@@ -143,3 +143,6 @@ table.gl th, table.gl td { padding: 10px 12px; border-bottom: 1px solid var(--li
 table.gl td.gl-term { font-weight: 700; white-space: nowrap; }
 .gl-list { margin: 0; padding-left: 18px; line-height: 1.6; color: var(--muted); }
 .gl-list li { margin-bottom: 6px; } .gl-list b { color: inherit; }
+
+/* while a new search runs, the old rows fade right back so they can't be read as the new results (Amit, 27 Nov 2026) */
+#content.loading { opacity: .25; filter: grayscale(.6); pointer-events: none; transition: opacity .15s, filter .15s; }

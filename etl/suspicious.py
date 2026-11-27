@@ -79,7 +79,7 @@ def keep(src: str, raw: dict) -> None:
             if row["k"] != "A":
                 row = {k: v for k, v in row.items() if k not in ("num", "dt", "rec", "ref")}   # counts only
             elif not (row["agent"] and row["talk"] <= KEEP_TALK):
-                row = {k: v for k, v in row.items() if k not in ("num", "dt", "ref")}          # answered: recording for All Call Recordings
+                row = {k: v for k, v in row.items() if k != "ref"}   # answered: recording, number and time for All Call Recordings
             ROWS.append(row)
     except Exception:
         pass

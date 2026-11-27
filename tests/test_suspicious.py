@@ -52,7 +52,7 @@ def test_keep_drops_call_details_unless_suspicious_and_never_raises():
     SUS.keep("A", None)
     SUS.keep("M", mc(callid="3", dialstatus="BUSY"))       # not answered: counts only, no recording
     assert len(SUS.ROWS) == 3 and "num" in SUS.ROWS[0] and "rec" in SUS.ROWS[0]
-    assert "rec" in SUS.ROWS[1] and "num" not in SUS.ROWS[1]   # answered, not suspicious: recording kept for All Call Recordings
+    assert "rec" in SUS.ROWS[1] and "num" in SUS.ROWS[1] and "dt" in SUS.ROWS[1] and "ref" not in SUS.ROWS[1]   # answered, not suspicious: kept for All Call Recordings
     assert "rec" not in SUS.ROWS[2]
 
 

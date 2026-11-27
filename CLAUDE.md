@@ -25,8 +25,10 @@ manual calls and LSQ stage changes. Rules: [docs/definitions.md](docs/definition
   Access `sus_allowed()` = `suspicious` in `portal.access` (its own dashboard in the portal; day one every Calling admin got it as admin). One-time history: workflow
   `suspicious_backfill.yml` (`etl/sus_backfill.py`, resumable, own concurrency group, restarts itself until the last day is in). Page: `web/suspicious/`.
   Ozonetel is not included (Amit, 26 Nov 2026). Two sections (Amit, 26 Nov 2026): Suspicious calls (report, heatmap, list) and
-  All Call Recordings: `call_rec` (every answered call with a recording link, talk time, who ended it; joined to `calls` by id;
-  60 days, only 30 if the database passes 450 MB), RPC `all_list`. Suspicious talk filter = bands (Amit, 26 Nov 2026):
+  All Call Recordings: `call_rec` (every answered call with a recording link, talk time, who ended it, agent, number and time;
+  60 days, only 30 if the database passes 450 MB), RPC `all_list` (Amit, 27 Nov 2026: reads only `call_rec`, never `calls`;
+  plpgsql that builds the search from the filters in use, so each search gets its own plan; a month takes under 1 s,
+  migration `20261127_call_rec_standalone.sql`). Suspicious talk filter = bands (Amit, 26 Nov 2026):
   Any length (<= 3 min), <= 5 s, 5-10 s, 10-20 s, 20 s-1 min, 1-3 min (`p_lo` exclusive, `p_max` inclusive; migration `20261126_talk_bands.sql`). No "Related" links between Calling and Suspicious.
   Recording links are stored short (Amit, 27 Nov 2026: room for 60 days): the common start of every link is kept once in `rec_fmt`
   (filled from the links themselves, never in the repo), triggers on `call_rec` / `sus_calls` shorten each link only when `_rec_url()`
