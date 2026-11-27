@@ -88,7 +88,7 @@ async function render() {
   const a = args();
   $("filters").hidden = S.page === "glossary";
   if (S.page === "glossary") { $("page-sub").textContent = "How every count, percentage and flag on these pages is worked out"; stopAudio(); }
-  else $("page-sub").innerHTML = `<b>${nice(a.p_from)}</b> – <b>${nice(a.p_to)}</b> · ${S.page === "all" ? "every answered call with a recording" : `agent ended the call, talk <b>${S.talk === "0-180" ? "any length up to 3 min" : TALK[S.talk]}</b>`}${S.src ? ` · <b>${SRC[S.src]}</b>` : " · MCube + Acefone"}`;
+  else $("page-sub").innerHTML = `<b>${nice(a.p_from)}</b> – <b>${nice(a.p_to)}</b> · ${S.page === "all" ? `every answered call with a recording${(S.meta?.rec_days || 60) < 60 ? ` · recordings kept for the last <b>${S.meta.rec_days} days</b>` : ""}` : `agent ended the call, talk <b>${S.talk === "0-180" ? "any length up to 3 min" : TALK[S.talk]}</b>`}${S.src ? ` · <b>${SRC[S.src]}</b>` : " · MCube + Acefone"}`;
   busy(true);
   try { const html = await fn(a, seq); if (seq !== S.seq) return; if (html != null) { $("content").innerHTML = html; afterRender(); } }
   catch (e) {
@@ -221,7 +221,7 @@ async function pageGlossary() {
     <ul class="gl-list">
       <li><b>Acefone ring time is approximate.</b> Acefone doesn't report the customer's ring time separately, so for unanswered calls the page uses the whole call duration. That makes Acefone low-ring counts a little lower than MCube's.</li>
       <li><b>Low-ring cuts and Executive Busy are only counts.</b> They don't come with recordings, because no conversation took place.</li>
-      <li><b>Data updates with every Calling Analytics refresh</b>, and 60 days are kept.</li>
+      <li><b>Data updates with every Calling Analytics refresh</b>, and 60 days are kept. If the database ever passes 460 MB, All Call Recordings switches to the last 30 days and stays there (suspicious calls keep 60 days); the page then says so under its title.</li>
     </ul>
   </div></section>`;
 }

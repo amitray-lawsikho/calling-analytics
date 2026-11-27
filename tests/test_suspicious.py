@@ -93,3 +93,13 @@ def test_glossary_page_and_copy_button():
     assert "LOW_RING = 10" in (root / "etl/suspicious.py").read_text()          # the glossary says 10 s or less
     assert "pc >= 20 && pc >= tp * 1.8" in js and "lr >= 25 && lr >= tl * 1.8" in js   # the glossary's High rules
     assert js.count("${phone(r.client_number)}") == 2 and "navigator.clipboard.writeText" in js
+
+
+def test_recordings_fall_back_to_30_days_at_460_mb():
+    """Amit, 27 Nov 2026: past 460 MB, All Call Recordings keeps the last 30 days and stays there."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    sql = (root / "supabase/migrations/20261127_recordings_30_day_fallback.sql").read_text()
+    assert "pg_database_size(current_database()) / 1000000.0" in sql and "mb > 460 and keep > 30" in sql
+    assert "'rec_days'" in sql and "delete from call_rec where call_date < today - (keep - 1)" in sql
+    assert "delete from sus_calls where call_date < p_from" in sql   # suspicious calls keep their 60 days

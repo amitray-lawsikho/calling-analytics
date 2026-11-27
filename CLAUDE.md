@@ -26,7 +26,9 @@ manual calls and LSQ stage changes. Rules: [docs/definitions.md](docs/definition
   `suspicious_backfill.yml` (`etl/sus_backfill.py`, resumable, own concurrency group, restarts itself until the last day is in). Page: `web/suspicious/`.
   Ozonetel is not included (Amit, 26 Nov 2026). Two sections (Amit, 26 Nov 2026): Suspicious calls (report, heatmap, list) and
   All Call Recordings: `call_rec` (every answered call with a recording link, talk time, who ended it, agent, number and time;
-  60 days, only 30 if the database passes 450 MB), RPC `all_list` (Amit, 27 Nov 2026: reads only `call_rec`, never `calls`;
+  60 days; Amit, 27 Nov 2026: once the database passes 460 MB (decimal MB, as the Usage page counts) `sus_trim` switches it to
+  the last 30 days for good, kept in `sus_state` 'rec_days' (back to 60 only by deleting that row; migration
+  `20261127_recordings_30_day_fallback.sql`; the page says so under its title), RPC `all_list` (Amit, 27 Nov 2026: reads only `call_rec`, never `calls`;
   plpgsql that builds the search from the filters in use, so each search gets its own plan; a month takes under 1 s,
   migration `20261127_call_rec_standalone.sql`). Suspicious talk filter = bands (Amit, 26 Nov 2026):
   Any length (<= 3 min), <= 5 s, 5-10 s, 10-20 s, 20 s-1 min, 1-3 min (`p_lo` exclusive, `p_max` inclusive; migration `20261126_talk_bands.sql`). No "Related" links between Calling and Suspicious.
